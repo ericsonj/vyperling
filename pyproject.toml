@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "vyperling"
-version = "0.0.1"
+version = "0.0.0.dev0"
 description = "Embedded C test runner with cross-compilation support"
 authors = [
     { name = "Ericson Joseph", email = "ericsonjoseph@gmail.com" },
