@@ -1,0 +1,71 @@
+# Poetry
+dist/
+build/
+*.egg-info/
+.venv/
+venv/
+ENV/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+htmlcov/
+
+# C build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.elf
+*.hex
+cmake_install.cmake
+CMakeCache.txt
+CMakeFiles/
+Makefile
+
+# Build directories (vyperling-specific)
+mocks/
+*.forge_deps.json
+*.gcda
+*.gcno
+*.gcov
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# OS
+Thumbs.db
+
+# Test/coverage
+coverage_report/
+junit.xml
+test-results.xml
+
+# Temporary files
+*.tmp
+*.temp
+*.bak

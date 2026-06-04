@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["main", "master"]
+
+jobs:
+  test-native:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Load cached venv
+        id: cached-poetry-dependencies
+        uses: actions/cache@v3
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install dependencies
+        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+        run: poetry install --with dev
+
+      - name: Test with pytest
+        run: poetry run pytest
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-native-${{ matrix.python-version }}
+          path: |
+            build/native/results.xml
+            build/native/coverage/coverage.xml
+          if-no-files-found: ignore
+
+  test-mips32:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Load cached venv
+        id: cached-poetry-dependencies
+        uses: actions/cache@v3
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-3.11-mips32-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install MIPS cross-toolchain and QEMU
+        run: sudo apt-get install -y gcc-mips-linux-gnu binutils-mips-linux-gnu qemu-user
+
+      - name: Install dependencies
+        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+        run: poetry install --with dev
+
+      - name: Run MIPS32 cross-compile e2e tests
+        run: poetry run pytest tests/test_e2e_cross.py -v
+
+      - name: Upload MIPS test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-mips32
+          path: build/mips*/results.xml
+          if-no-files-found: ignore
+
+  publish:
+    needs: [test-native, test-mips32]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse version from tag
+        id: version
+        run: |
+          RAW="${GITHUB_REF_NAME}"
+          VER="${RAW#v}"
+          PEP440=$(echo "$VER" | sed 's/-alpha\./a/;s/-beta\./b/;s/-rc\./rc/')
+          IS_PRE=$([[ "$VER" == *-* ]] && echo "true" || echo "false")
+          echo "pep440=$PEP440" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRE" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Set version
+        run: poetry version ${{ steps.version.outputs.pep440 }}
+
+      - name: Build
+        run: poetry build
+
+      - name: Publish to PyPI
+        run: poetry publish --username __token__ --password ${{ secrets.PYPI_TOKEN }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FLAGS=""
+          if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
+            FLAGS="--prerelease"
+          fi
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            $FLAGS

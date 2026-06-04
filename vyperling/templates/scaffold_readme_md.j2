@@ -1,0 +1,29 @@
+# {{ name }}
+
+A C project scaffolded by [vyperling](https://pypi.org/project/vyperling/).
+
+## Layout
+
+```
+{{ name }}/
+├── forge.yml          # project configuration
+├── src/               # source under test
+│   ├── example.c
+│   └── example.h
+├── test/              # test_*.c files (Unity)
+│   └── test_example.c
+└── mocks/             # auto-generated mocks (do not edit)
+```
+
+## Quick start
+
+```bash
+vpl test            # discover → compile → run → report (native)
+vpl test --coverage # with gcov coverage (native only)
+vpl build           # compile only, no run
+vpl targets         # list available toolchain profiles
+vpl mock src/foo.h  # generate mocks/mock_foo.{c,h}
+```
+
+The convention is `test/test_<module>.c` tests `src/<module>.c`. Add a new module
+by creating `src/<module>.{c,h}` and `test/test_<module>.c`, then run `vpl test`.

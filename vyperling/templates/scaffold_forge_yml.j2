@@ -1,0 +1,25 @@
+project:
+  name: {{ name }}
+  src_dirs:
+    - src
+  test_dir: test
+  include_dirs:
+    - src
+  build_dir: build
+  mock_dir: mocks
+
+targets:
+  default: native
+
+compiler:
+  extra_cflags: []
+  defines: []
+
+# Define custom toolchain profiles here (optional). Example:
+# toolchains:
+#   pic32mk:
+#     description: "PIC32MK production flags"
+#     cc: mips-linux-gnu-gcc
+#     cflags: [-march=mips32r5, -EL, -Wall]
+#     emulator: qemu-mips
+#     static: true

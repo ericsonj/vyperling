@@ -1,0 +1,55 @@
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "vyperling"
+version = "0.0.1"
+description = "Embedded C test runner with cross-compilation support"
+authors = [
+    { name = "Ericson Joseph", email = "ericsonjoseph@gmail.com" },
+]
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11,<4.0"
+dependencies = [
+    "click>=8.0,<9.0",
+    "rich>=13.0,<15.0",
+    "pyyaml>=6.0,<7.0",
+    "pycparser>=2.21",
+    "pycparser-fake-libc>=2.21",
+    "jinja2>=3.0,<4.0",
+    "gcovr>=7.0,<9.0",
+]
+
+[tool.poetry]
+packages = [{ include = "vyperling" }]
+# C assets included in wheel for importlib.resources access — files added in Step 2
+include = [
+    { path = "vyperling/c/*.h", format = ["sdist", "wheel"] },
+    { path = "vyperling/c/*.c", format = ["sdist", "wheel"] },
+    { path = "vyperling/templates/*.j2", format = ["sdist", "wheel"] },
+]
+
+[project.scripts]
+vyperling = "vyperling.cli:cli"
+vpl = "vyperling.cli:cli"
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0,<9.0",
+    "pytest-cov>=4.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "--cov=vyperling --cov-report=term-missing"
+testpaths = ["tests"]
+filterwarnings = ["ignore::pytest.PytestCollectionWarning"]
+
+[tool.coverage.run]
+source = ["vyperling"]
+branch = true
+
+[tool.coverage.report]
+skip_empty = true
+fail_under = 85
