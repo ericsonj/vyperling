@@ -86,7 +86,7 @@ jobs:
         run: poetry install --with dev
 
       - name: Run MIPS32 cross-compile e2e tests
-        run: poetry run pytest tests/test_e2e_cross.py -v
+        run: poetry run pytest tests/test_e2e_cross.py -v --no-cov
 
       - name: Upload MIPS test results
         if: always()
