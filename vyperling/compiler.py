@@ -11,6 +11,7 @@ from pathlib import Path
 
 from vyperling.config import get_build_dir, get_include_dirs
 from vyperling.discoverer import TestUnit
+from vyperling.runnergen import generate_runner
 from vyperling.toolchains import Toolchain
 from vyperling.unity import (
     get_forge_mock_c_path,
@@ -69,21 +70,48 @@ def compile_unit(
     verbose: bool = False,
     coverage: bool = False,
 ) -> CompileResult:
+    conventions = config.get("conventions", {})
+    mock_prefix: str = conventions.get("mock_prefix", "mock_")
+    test_prefix: str = conventions.get("test_prefix", "test_")
+    test_naming: str = conventions.get("test_naming", "snake_case")
+
     mock_dir = Path(config["project"]["mock_dir"])
 
     sources: list[Path] = [unit.test_file]
     if unit.source_file is not None:
         sources.append(unit.source_file)
-    # Link only the mocks this test explicitly includes (`#include "mock_<dep>.h"`),
+    # Link only the mocks this test explicitly includes (`#include "<prefix><dep>.h"`),
     # never glob-all — that would redefine the unit's own source symbols. This
     # mirrors Ceedling: a test links its SUT plus mocks of its dependencies, and
     # the real dependency source is replaced by the mock, never linked alongside.
     for dep in unit.mocks:
-        mock_c = mock_dir / f"mock_{dep}.c"
+        mock_c = mock_dir / f"{mock_prefix}{dep}.c"
         if mock_c.is_file():
             sources.append(mock_c)
+    # Link support sources (always-linked stubs/helpers) declared in forge.yml.
+    for src_path in config["project"].get("support_srcs", []):
+        p = Path(src_path)
+        if p.is_file():
+            sources.append(p)
+    # Link per-test extra sources declared in forge.yml project.extra_srcs.
+    for p in unit.extra_srcs:
+        if p.is_file() and p not in sources:
+            sources.append(p)
     sources.append(get_unity_c_path())
     sources.append(get_forge_mock_c_path())
+
+    # Generate the Unity runner (main + RUN_TEST list) for this test, the way
+    # Ceedling auto-creates one. Without it the test TU has no main() to link.
+    runner_path = build_dir / f"{unit.name}_runner.c"
+    generate_runner(
+        unit.test_file,
+        runner_path,
+        list(unit.mocks),
+        test_prefix=test_prefix,
+        test_naming=test_naming,
+        mock_prefix=mock_prefix,
+    )
+    sources.append(runner_path)
 
     include_dirs: list[Path] = list(get_include_dirs(config))
     include_dirs.append(get_unity_include_dir())

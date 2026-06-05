@@ -18,6 +18,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "include_dirs": ["src"],
         "build_dir": "build",
         "mock_dir": "mocks",
+        "support_srcs": [],
+        "extra_srcs": {},
     },
     "targets": {
         "default": "native",
@@ -27,6 +29,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "defines": [],
     },
     "toolchains": {},
+    "conventions": {
+        "test_prefix": "test_",
+        "mock_prefix": "mock_",
+        "test_naming": "snake_case",
+    },
 }
 
 

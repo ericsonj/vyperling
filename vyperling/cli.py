@@ -11,7 +11,7 @@ def _src_headers(config: dict) -> list[Path]:
     from .config import get_src_dirs
 
     return sorted(
-        h for d in get_src_dirs(config) if d.is_dir() for h in d.glob("*.h")
+        h for d in get_src_dirs(config) if d.is_dir() for h in d.rglob("*.h")
     )
 
 
@@ -33,11 +33,15 @@ def _mock_headers_for_units(config: dict, units) -> list[Path]:
 
     headers: list[Path] = []
     for dep in deps:
+        found = False
         for d in src_dirs:
-            candidate = d / f"{dep}.h"
-            if candidate.is_file():
-                headers.append(candidate)
+            matches = sorted(d.rglob(f"{dep}.h"))
+            if matches:
+                headers.append(matches[0])
+                found = True
                 break
+        if found:
+            continue
     return headers
 
 

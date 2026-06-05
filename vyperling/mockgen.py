@@ -78,6 +78,7 @@ class Param:
     is_const_ptr: bool = False
     return_thru: bool = False
     pointee_type: str = ""
+    storage_type: str = ""
 
 
 @dataclass
@@ -107,10 +108,18 @@ def _cpp_args(config: dict) -> list[str]:
         "-D__restrict=",
         "-D__asm__(x)=",
     ]
+    for d in config["compiler"]["defines"]:
+        args.append("-D" + str(d))
     for d in get_include_dirs(config):
         args.append("-I" + str(d.resolve()))
     for d in get_src_dirs(config):
         args.append("-I" + str(d.resolve()))
+    # Pass through -D and -U extra_cflags (skip -include and other flags that
+    # are incompatible with the pycparser fake-libc -nostdinc environment).
+    for flag in config["compiler"].get("extra_cflags", []):
+        flag = str(flag).strip()
+        if flag.startswith(("-D", "-U")):
+            args.append(flag)
     return args
 
 
@@ -118,6 +127,15 @@ def _strip_quals(type_str: str) -> str:
     """Normalise a rendered C type for TREAT_AS lookup."""
     tokens = [t for t in type_str.replace("*", " ").split() if t not in ("const", "volatile")]
     return " ".join(tokens).strip()
+
+
+def _storage_type(type_str: str) -> str:
+    """A writable copy type for a struct member: drop all `const` qualifiers but
+    keep `*` so pointer arity is preserved (`const char *const` -> `char *`)."""
+    out = type_str.replace("*", " * ")
+    tokens = [t for t in out.split() if t != "const"]
+    rendered = " ".join(tokens)
+    return rendered.replace(" * ", " *").replace(" *", " *").strip()
 
 
 def _treat_as(type_str: str) -> str:
@@ -130,12 +148,10 @@ def _treat_as(type_str: str) -> str:
         return "PTR"
     if norm in TREAT_AS:
         return TREAT_AS[norm]
-    warnings.warn(
-        f"vyperling mockgen: unknown scalar type '{type_str}', comparing as INT",
-        UserWarning,
-        stacklevel=3,
-    )
-    return "INT"
+    # Unknown non-pointer type (typically a struct/union or project enum/typedef).
+    # Mirror CMock's `memcmp_if_unknown: true` — compare the raw bytes. This keeps
+    # struct-by-value parameters working instead of mis-treating them as int.
+    return "MEMORY"
 
 
 def _is_void_param(param) -> bool:
@@ -164,8 +180,12 @@ def _build_param(param, index: int, gen: c_generator.CGenerator) -> Param:
         is_const_ptr = "const" in getattr(pointee, "quals", [])
         pointee_type = gen.visit(pointee)
     assert_suffix = _treat_as(type_str)
-    # ReturnThruPtr only for writable (non-const) pointers that aren't strings.
-    return_thru = is_ptr and not is_const_ptr and assert_suffix != "STRING"
+    # ReturnThruPtr only for writable (non-const) pointers that aren't strings,
+    # and never for `void *` (sizeof(void) is illegal — can't size the copy).
+    pointee_is_void = is_ptr and _strip_quals(pointee_type) == "void"
+    return_thru = (
+        is_ptr and not is_const_ptr and assert_suffix != "STRING" and not pointee_is_void
+    )
     return Param(
         name=name,
         type=type_str,
@@ -174,12 +194,14 @@ def _build_param(param, index: int, gen: c_generator.CGenerator) -> Param:
         is_const_ptr=is_const_ptr,
         return_thru=return_thru,
         pointee_type=pointee_type,
+        storage_type=_storage_type(type_str),
     )
 
 
-def _extract_functions(ast, fake_dir: str) -> list[FunctionDecl]:
+def _extract_functions(ast, fake_dir: str, target: Path | None = None) -> list[FunctionDecl]:
     gen = c_generator.CGenerator()
     out: list[FunctionDecl] = []
+    target_resolved = target.resolve() if target is not None else None
 
     for ext in ast.ext:
         if not isinstance(ext, c_ast.Decl):
@@ -190,6 +212,17 @@ def _extract_functions(ast, fake_dir: str) -> list[FunctionDecl]:
         coord = ext.coord
         if coord is not None and coord.file and fake_dir in str(coord.file):
             continue
+        # Only mock functions declared in THIS header, not ones pulled in via
+        # transitive #includes (e.g. osal.h). Otherwise every mock would redefine
+        # the included headers' functions and collide at link time. Mirrors CMock,
+        # which mocks a single header's own declarations.
+        if target_resolved is not None and coord is not None and coord.file:
+            try:
+                if Path(coord.file).resolve() != target_resolved:
+                    continue
+            except OSError:
+                if Path(coord.file).name != target_resolved.name:
+                    continue
 
         func = ext.type
         name = ext.name
@@ -249,7 +282,7 @@ def parse_header(header_path: Path, config: dict, toolchain: Toolchain) -> list[
         )
     except Exception as exc:  # noqa: BLE001 — pycparser/cpp raise many types
         raise ForgeMockgenError(f"Failed to parse {header_path}: {exc}") from exc
-    return _extract_functions(ast, pycparser_fake_libc.directory)
+    return _extract_functions(ast, pycparser_fake_libc.directory, header_path)
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +333,9 @@ def _callback_call_args(f: FunctionDecl) -> str:
     return ", ".join(args)
 
 
-def _build_context(module: str, header_name: str, funcs: list[FunctionDecl]) -> dict:
+def _build_context(
+    module: str, header_name: str, funcs: list[FunctionDecl], mock_prefix: str = "mock_"
+) -> dict:
     active = [f for f in funcs if not f.skipped]
     fctx = []
     for f in active:
@@ -310,6 +345,7 @@ def _build_context(module: str, header_name: str, funcs: list[FunctionDecl]) -> 
                 {
                     "name": p.name,
                     "type": p.type,
+                    "storage_type": p.storage_type,
                     "assert_suffix": p.assert_suffix,
                     "is_ptr": p.is_ptr,
                     "is_const_ptr": p.is_const_ptr,
@@ -339,6 +375,7 @@ def _build_context(module: str, header_name: str, funcs: list[FunctionDecl]) -> 
         "module": module,
         "header_name": header_name,
         "guard": f"MOCK_{module.upper()}_H",
+        "mock_prefix": mock_prefix,
         "functions": fctx,
     }
 
@@ -365,7 +402,8 @@ def generate_mock(
     config: dict,
     toolchain: Toolchain,
 ) -> tuple[Path, Path]:
-    """Generate mock_<module>.h and mock_<module>.c. Returns their paths."""
+    """Generate <mock_prefix><module>.h and <mock_prefix><module>.c. Returns their paths."""
+    mock_prefix: str = config.get("conventions", {}).get("mock_prefix", "mock_")
     module = header_path.stem
     funcs = parse_header(header_path, config, toolchain)
 
@@ -377,14 +415,14 @@ def generate_mock(
                 stacklevel=2,
             )
 
-    context = _build_context(module, header_path.name, funcs)
+    context = _build_context(module, header_path.name, funcs, mock_prefix)
     env = _environment()
     header_out = env.get_template("mock_header.h.j2").render(**context)
     source_out = env.get_template("mock_source.c.j2").render(**context)
 
     mock_dir.mkdir(parents=True, exist_ok=True)
-    h_path = mock_dir / f"mock_{module}.h"
-    c_path = mock_dir / f"mock_{module}.c"
+    h_path = mock_dir / f"{mock_prefix}{module}.h"
+    c_path = mock_dir / f"{mock_prefix}{module}.c"
     h_path.write_text(header_out, encoding="utf-8")
     c_path.write_text(source_out, encoding="utf-8")
     return h_path, c_path
@@ -396,8 +434,20 @@ def generate_all(
     config: dict,
     toolchain: Toolchain,
 ) -> list[tuple[Path, Path]]:
-    """Generate mocks for every header. Returns a list of (mock.h, mock.c) tuples."""
+    """Generate mocks for every header. Returns a list of (mock.h, mock.c) tuples.
+
+    A header that fails to parse (e.g. it pulls in a missing dependency) is
+    skipped with a warning rather than aborting the whole run — the tests that
+    depend on its mock will simply fail to compile in isolation.
+    """
     results: list[tuple[Path, Path]] = []
     for header in headers:
-        results.append(generate_mock(header, mock_dir, config, toolchain))
+        try:
+            results.append(generate_mock(header, mock_dir, config, toolchain))
+        except ForgeMockgenError as exc:
+            warnings.warn(
+                f"vyperling mockgen: skipping mock for {header} — {exc}",
+                UserWarning,
+                stacklevel=2,
+            )
     return results

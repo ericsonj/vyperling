@@ -128,6 +128,14 @@ class TestLoadConfig:
         assert cfg["targets"] == DEFAULT_CONFIG["targets"]
         assert cfg["compiler"] == DEFAULT_CONFIG["compiler"]
 
+    def test_support_srcs_default_empty(self, tmp_path):
+        cfg = load_config(write_forge_yml(tmp_path, MINIMAL_YAML))
+        assert cfg["project"]["support_srcs"] == []
+
+    def test_extra_srcs_default_empty_dict(self, tmp_path):
+        cfg = load_config(write_forge_yml(tmp_path, MINIMAL_YAML))
+        assert cfg["project"]["extra_srcs"] == {}
+
     def test_user_list_replaces_default_list(self, tmp_path):
         yaml_content = "project:\n  name: proj\n  src_dirs:\n    - custom\n    - extra\n"
         cfg = load_config(write_forge_yml(tmp_path, yaml_content))
@@ -218,6 +226,45 @@ class TestGetSrcDirs:
         result = get_src_dirs(cfg)
         assert isinstance(result, list)
         assert all(isinstance(p, Path) for p in result)
+
+
+class TestConventionsDefaults:
+    def test_conventions_key_present(self, tmp_path):
+        cfg = load_config(write_forge_yml(tmp_path))
+        assert "conventions" in cfg
+
+    def test_default_test_prefix(self, tmp_path):
+        cfg = load_config(write_forge_yml(tmp_path))
+        assert cfg["conventions"]["test_prefix"] == "test_"
+
+    def test_default_mock_prefix(self, tmp_path):
+        cfg = load_config(write_forge_yml(tmp_path))
+        assert cfg["conventions"]["mock_prefix"] == "mock_"
+
+    def test_default_test_naming(self, tmp_path):
+        cfg = load_config(write_forge_yml(tmp_path))
+        assert cfg["conventions"]["test_naming"] == "snake_case"
+
+    def test_override_test_prefix(self, tmp_path):
+        yaml_content = "project:\n  name: proj\nconventions:\n  test_prefix: \"Test\"\n"
+        cfg = load_config(write_forge_yml(tmp_path, yaml_content))
+        assert cfg["conventions"]["test_prefix"] == "Test"
+
+    def test_override_mock_prefix(self, tmp_path):
+        yaml_content = "project:\n  name: proj\nconventions:\n  mock_prefix: \"Mock\"\n"
+        cfg = load_config(write_forge_yml(tmp_path, yaml_content))
+        assert cfg["conventions"]["mock_prefix"] == "Mock"
+
+    def test_override_test_naming(self, tmp_path):
+        yaml_content = "project:\n  name: proj\nconventions:\n  test_naming: \"camelCase\"\n"
+        cfg = load_config(write_forge_yml(tmp_path, yaml_content))
+        assert cfg["conventions"]["test_naming"] == "camelCase"
+
+    def test_partial_override_preserves_other_defaults(self, tmp_path):
+        yaml_content = "project:\n  name: proj\nconventions:\n  test_prefix: \"Test\"\n"
+        cfg = load_config(write_forge_yml(tmp_path, yaml_content))
+        assert cfg["conventions"]["mock_prefix"] == "mock_"
+        assert cfg["conventions"]["test_naming"] == "snake_case"
 
 
 class TestGetIncludeDirs:

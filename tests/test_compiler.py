@@ -277,6 +277,39 @@ class TestCompileUnit:
         cmd = mock_run.call_args[0][0]
         assert not any("mocks" in arg for arg in cmd)
 
+    def test_support_srcs_linked(self):
+        stub = self.tmp / "src" / "stub_helper.c"
+        stub.write_text("")
+        # Inject support_srcs into config
+        self.config["project"]["support_srcs"] = [str(stub)]
+        unit = _make_unit(self.tmp)
+        _, mock_run = self._run(unit=unit)
+        cmd = mock_run.call_args[0][0]
+        assert str(stub) in cmd
+
+    def test_support_srcs_missing_file_not_linked(self):
+        self.config["project"]["support_srcs"] = ["nonexistent.c"]
+        unit = _make_unit(self.tmp)
+        _, mock_run = self._run(unit=unit)
+        cmd = mock_run.call_args[0][0]
+        assert "nonexistent.c" not in cmd
+
+    def test_extra_srcs_linked(self):
+        extra = self.tmp / "src" / "extra_helper.c"
+        extra.write_text("")
+        unit = _make_unit(self.tmp)
+        unit.extra_srcs = [extra]
+        _, mock_run = self._run(unit=unit)
+        cmd = mock_run.call_args[0][0]
+        assert str(extra) in cmd
+
+    def test_runner_c_generated_and_linked(self):
+        unit = _make_unit(self.tmp)
+        _, mock_run = self._run(unit=unit)
+        cmd = mock_run.call_args[0][0]
+        runner_name = f"{unit.name}_runner.c"
+        assert any(runner_name in arg for arg in cmd)
+
 
 # ---------------------------------------------------------------------------
 # TestCompileAll

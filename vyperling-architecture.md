@@ -928,17 +928,24 @@ jobs:
 
 ## 17. Future roadmap
 
-### v0.2
-- `--watch` mode: rerun tests on file change using `watchdog`
-- Argument capture in mocks (store last N calls, not just count)
-- `vyperling report` command to re-display results from a previous run without recompiling
+### v0.0.1-rc.1: initial release candidate with core features:
+- First test in real application code, fix any critical bug and changes needed to support it
 
-### v0.3
-- On-target execution via OpenOCD/pyOCD debug probe (for `--target on-device`)
-- YAML test matrix: run the same suite across multiple targets in one command
-- VS Code extension for inline pass/fail annotations
+### v0.0.2
+- Add examples in repository root for users to clone and test with, FreeRTOS + STM32 example project, etc. (Note: the examples should test them with ceedling and vyperling to verify compatibility, migration reference, documentation and functionality validation)
+- Refine coverage report generation: add a summary line with percentage, fail the run if coverage is below a threshold and print coverage details in the terminal
+- Testing real application code and fix limitations
 
-### v1.0
+### v0.0.3
 - Full C preprocessor awareness in mockgen (handle `#ifdef`-guarded declarations)
 - CException support
 - Plugin API for custom reporters and custom emulator adapters
+
+### v0.0.4
+- On-target execution via OpenOCD/pyOCD debug probe (for `--target on-device`)
+- VS Code extension for inline pass/fail annotations
+
+### v0.0.N
+- `--watch` mode: rerun tests on file change using `watchdog`
+- Argument capture in mocks (store last N calls, not just count)
+- `vyperling report` command to re-display results from a previous run without recompiling

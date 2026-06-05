@@ -13,7 +13,9 @@ import pytest
 from vyperling.errors import ForgeMockgenError
 from vyperling.mockgen import (
     FunctionDecl,
+    _storage_type,
     _treat_as,
+    generate_all,
     generate_mock,
     parse_header,
 )
@@ -32,12 +34,16 @@ HAVE_GCC = shutil.which("gcc") is not None
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _config(src: Path) -> dict:
+def _config(src: Path, defines: list[str] | None = None) -> dict:
     return {
         "project": {
             "src_dirs": [str(src)],
             "include_dirs": [str(src)],
             "mock_dir": str(src.parent / "mocks"),
+        },
+        "compiler": {
+            "defines": defines or [],
+            "extra_cflags": [],
         },
         "toolchains": {},
     }
@@ -94,9 +100,17 @@ class TestTreatAs:
     def test_strips_const(self):
         assert _treat_as("const uint16_t") == "UINT16"
 
-    def test_unknown_warns_and_falls_back_to_int(self):
-        with pytest.warns(UserWarning):
-            assert _treat_as("frobnicator_t") == "INT"
+    def test_unknown_type_is_memory(self):
+        # Unknown types (structs, project enums) → byte-compare, no warning
+        assert _treat_as("frobnicator_t") == "MEMORY"
+
+    def test_unknown_type_no_warning(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert _treat_as("my_struct_t") == "MEMORY"  # must not warn
+
+    def test_void_ptr_is_ptr(self):
+        assert _treat_as("void *") == "PTR"
 
 
 # ---------------------------------------------------------------------------
@@ -325,6 +339,25 @@ int main(void){ UNITY_BEGIN(); RUN_TEST(test_bad); return UNITY_END(); }
         assert proc.returncode != 0
         assert "FAIL" in proc.stdout
 
+    def test_ignore_arg_skips_one_param(self, tmp_path):
+        src = """\
+#include "unity.h"
+#include "mock_uart.h"
+#include <stdint.h>
+void setUp(void)    { mock_uart_Init(); }
+void tearDown(void) { mock_uart_Verify(); mock_uart_Destroy(); }
+void test_ignore_len(void) {
+    /* Expect a call; ignore the 'len' argument — any uint16 passes. */
+    uart_send_ExpectAndReturn("hi", 2, 0);
+    uart_send_IgnoreArg_len();
+    TEST_ASSERT_EQUAL_INT(0, uart_send("hi", 99));  /* len differs — must pass */
+}
+int main(void){ UNITY_BEGIN(); RUN_TEST(test_ignore_len); return UNITY_END(); }
+"""
+        binary = self._build(tmp_path, src)
+        proc = subprocess.run([str(binary)], capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stdout
+
     def test_missing_call_fails_at_verify(self, tmp_path):
         src = """\
 #include "unity.h"
@@ -340,6 +373,120 @@ int main(void){ UNITY_BEGIN(); RUN_TEST(test_missing); return UNITY_END(); }
         proc = subprocess.run([str(binary)], capture_output=True, text=True)
         assert proc.returncode != 0
         assert "FAIL" in proc.stdout
+
+
+# ---------------------------------------------------------------------------
+# Layer 5b — _storage_type (pure)
+# ---------------------------------------------------------------------------
+
+class TestStorageType:
+    def test_const_char_ptr(self):
+        assert _storage_type("const char *") == "char *"
+
+    def test_const_ptr_to_const(self):
+        # const uint8_t *const → uint8_t *
+        assert _storage_type("const uint8_t *const") == "uint8_t *"
+
+    def test_plain_int(self):
+        assert _storage_type("int") == "int"
+
+    def test_plain_ptr(self):
+        assert _storage_type("uint32_t *") == "uint32_t *"
+
+
+# ---------------------------------------------------------------------------
+# Layer 5c — transitive include filtering
+# ---------------------------------------------------------------------------
+
+class TestTransitiveIncludeFiltering:
+    def test_only_target_header_functions_mocked(self, tmp_path):
+        """Functions from #included headers must not appear in the mock."""
+        dep = _write(
+            tmp_path / "src" / "dep.h",
+            "int dep_fn(void);\n",
+        )
+        top = _write(
+            tmp_path / "src" / "top.h",
+            f'#include "dep.h"\nint top_fn(void);\n',
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            funcs = parse_header(top, _config(top.parent), _native())
+        names = [f.name for f in funcs]
+        assert "top_fn" in names
+        assert "dep_fn" not in names
+
+
+# ---------------------------------------------------------------------------
+# Layer 5d — compiler define pass-through
+# ---------------------------------------------------------------------------
+
+class TestDefinePassthrough:
+    def test_gated_function_absent_without_define(self, tmp_path):
+        h = _write(
+            tmp_path / "src" / "guarded.h",
+            "#ifdef PROJECT_DEF\nint real_fn(void);\n#endif\n",
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            funcs = parse_header(h, _config(h.parent), _native())
+        assert not any(f.name == "real_fn" for f in funcs)
+
+    def test_gated_function_present_with_define(self, tmp_path):
+        h = _write(
+            tmp_path / "src" / "guarded.h",
+            "#ifdef PROJECT_DEF\nint real_fn(void);\n#endif\n",
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            funcs = parse_header(
+                h, _config(h.parent, defines=["PROJECT_DEF"]), _native()
+            )
+        assert any(f.name == "real_fn" for f in funcs)
+
+
+# ---------------------------------------------------------------------------
+# Layer 5e — void * excluded from ReturnThruPtr
+# ---------------------------------------------------------------------------
+
+class TestVoidPtrReturnThru:
+    def test_void_ptr_has_no_return_thru(self, tmp_path):
+        h = _write(
+            tmp_path / "src" / "buf.h",
+            "int buf_read(void *buf, int len);\n",
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["buf_read"].return_thru_params == []
+
+    def test_void_ptr_no_return_thru_in_generated_header(self, tmp_path):
+        h = _write(
+            tmp_path / "src" / "buf.h",
+            "int buf_read(void *buf, int len);\n",
+        )
+        mock_dir = tmp_path / "mocks"
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            h_path, _ = generate_mock(h, mock_dir, _config(h.parent), _native())
+        assert "ReturnThruPtr_buf" not in h_path.read_text()
+
+
+# ---------------------------------------------------------------------------
+# Layer 5f — generate_all partial failure
+# ---------------------------------------------------------------------------
+
+class TestGenerateAllPartialFailure:
+    def test_bad_header_skipped_good_one_generated(self, tmp_path):
+        src = tmp_path / "src"
+        good = _write(src / "good.h", "int good_fn(void);\n")
+        bad = _write(src / "bad.h", "int oops(\n")  # truncated — parse error
+        mock_dir = tmp_path / "mocks"
+        with pytest.warns(UserWarning, match="skipping mock"):
+            results = generate_all([good, bad], mock_dir, _config(src), _native())
+        # Only the good header produced output
+        assert len(results) == 1
+        assert results[0][0].name == "mock_good.h"
 
 
 # ---------------------------------------------------------------------------
@@ -366,6 +513,50 @@ class TestForgeMockAccessors:
 # ---------------------------------------------------------------------------
 # Layer 7 — error handling
 # ---------------------------------------------------------------------------
+
+class TestMockPrefixConvention:
+    """generate_mock() respects conventions.mock_prefix."""
+
+    def _cfg_with_prefix(self, src: Path, mock_prefix: str) -> dict:
+        cfg = _config(src)
+        cfg["conventions"] = {"mock_prefix": mock_prefix}
+        return cfg
+
+    def test_mock_prefix_filenames(self, tmp_path):
+        h = _write(tmp_path / "src" / "uart.h", "int uart_init(void);\n")
+        mock_dir = tmp_path / "mocks"
+        h_path, c_path = generate_mock(
+            h, mock_dir, self._cfg_with_prefix(h.parent, "Mock"), _native()
+        )
+        assert h_path.name == "Mockuart.h"
+        assert c_path.name == "Mockuart.c"
+
+    def test_mock_prefix_lifecycle_in_header(self, tmp_path):
+        h = _write(tmp_path / "src" / "uart.h", "int uart_init(void);\n")
+        mock_dir = tmp_path / "mocks"
+        h_path, _ = generate_mock(
+            h, mock_dir, self._cfg_with_prefix(h.parent, "Mock"), _native()
+        )
+        text = h_path.read_text()
+        assert "void Mockuart_Init(void);" in text
+        assert "void Mockuart_Verify(void);" in text
+        assert "void Mockuart_Destroy(void);" in text
+
+    def test_mock_prefix_include_in_source(self, tmp_path):
+        h = _write(tmp_path / "src" / "uart.h", "int uart_init(void);\n")
+        mock_dir = tmp_path / "mocks"
+        _, c_path = generate_mock(
+            h, mock_dir, self._cfg_with_prefix(h.parent, "Mock"), _native()
+        )
+        assert '#include "Mockuart.h"' in c_path.read_text()
+
+    def test_default_prefix_still_works(self, tmp_path):
+        h = _write(tmp_path / "src" / "uart.h", "int uart_init(void);\n")
+        mock_dir = tmp_path / "mocks"
+        h_path, c_path = generate_mock(h, mock_dir, _config(h.parent), _native())
+        assert h_path.name == "mock_uart.h"
+        assert c_path.name == "mock_uart.c"
+
 
 class TestErrors:
     def test_broken_header_raises(self, tmp_path):

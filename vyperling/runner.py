@@ -75,7 +75,7 @@ def run_binary(
             binary=None,
             exit_code=-1,
             stdout="",
-            stderr="",
+            stderr=compile_result.output,
             duration_ms=0,
             timed_out=False,
             tests=[],

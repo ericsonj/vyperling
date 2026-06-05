@@ -22,7 +22,6 @@ FAILING_TEST_C = """\
 void setUp(void) {}
 void tearDown(void) {}
 void test_fails(void) { TEST_ASSERT_EQUAL_INT(1, 2); }
-int main(void) { UNITY_BEGIN(); RUN_TEST(test_fails); return UNITY_END(); }
 """
 
 gcc_only = pytest.mark.skipif(shutil.which("gcc") is None, reason="gcc not available")
@@ -165,11 +164,6 @@ def test_test_with_mocked_dependency_passes(runner: CliRunner) -> None:
             "void test_widget_uses_clock(void) {\n"
             "    clock_now_ExpectAndReturn(41);\n"
             "    TEST_ASSERT_EQUAL_INT(42, widget_tick());\n"
-            "}\n"
-            "int main(void) {\n"
-            "    UNITY_BEGIN();\n"
-            "    RUN_TEST(test_widget_uses_clock);\n"
-            "    return UNITY_END();\n"
             "}\n"
         )
         result = runner.invoke(cli, ["test", "-k", "widget"])
@@ -379,7 +373,6 @@ def test_test_no_mock_skips_generation(runner: CliRunner) -> None:
             '#include "unity.h"\n#include "mock_clock.h"\n'
             "void setUp(void) {}\nvoid tearDown(void) {}\n"
             "void test_x(void) {}\n"
-            "int main(void){UNITY_BEGIN();RUN_TEST(test_x);return UNITY_END();}\n"
         )
         result = runner.invoke(cli, ["test", "--no-mock"])
         # mock not generated -> mock_clock.h missing -> compile fails
@@ -436,7 +429,6 @@ def test_test_mock_include_without_matching_header(runner: CliRunner) -> None:
             '#include "unity.h"\n#include "example.h"\n#include "mock_ghost.h"\n'
             "void setUp(void) {}\nvoid tearDown(void) {}\n"
             "void test_x(void) { TEST_ASSERT_EQUAL_INT(5, example_add(2,3)); }\n"
-            "int main(void){UNITY_BEGIN();RUN_TEST(test_x);return UNITY_END();}\n"
         )
         result = runner.invoke(cli, ["build"])
         # ghost has no header -> no mock_ghost.c generated
@@ -463,7 +455,6 @@ def test_build_generates_mocks(runner: CliRunner) -> None:
             '#include "unity.h"\n#include "mock_clock.h"\n'
             "void setUp(void) {}\nvoid tearDown(void) {}\n"
             "void test_x(void) {}\n"
-            "int main(void){UNITY_BEGIN();RUN_TEST(test_x);return UNITY_END();}\n"
         )
         result = runner.invoke(cli, ["build"])
         assert result.exit_code == 0, result.output

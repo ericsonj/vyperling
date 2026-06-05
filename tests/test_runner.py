@@ -261,9 +261,19 @@ class TestRunBinary:
         assert result.exit_code == -1
         assert result.timed_out is False
         assert result.stdout == ""
-        assert result.stderr == ""
         assert result.tests == []
         mock_run.assert_not_called()
+
+    def test_failed_compile_stderr_is_compile_output(self):
+        cr = CompileResult(
+            unit=_make_unit(),
+            binary=None,
+            success=False,
+            output="uart.c:12: error: 'foo' undeclared",
+            duration_ms=5,
+        )
+        result, _ = self._run(cr=cr)
+        assert result.stderr == "uart.c:12: error: 'foo' undeclared"
 
     def test_none_binary_with_success_true_returns_synthetic(self):
         cr = CompileResult(unit=_make_unit(), binary=None, success=True, output="", duration_ms=0)

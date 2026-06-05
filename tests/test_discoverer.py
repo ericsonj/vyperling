@@ -32,16 +32,20 @@ class TestTestUnitDataclass:
     def test_is_dataclass(self):
         assert dataclasses.is_dataclass(TestUnit)
 
-    def test_has_four_fields(self):
-        assert len(dataclasses.fields(TestUnit)) == 4
+    def test_has_five_fields(self):
+        assert len(dataclasses.fields(TestUnit)) == 5
 
     def test_field_names(self):
         names = {f.name for f in dataclasses.fields(TestUnit)}
-        assert names == {"test_file", "source_file", "name", "mocks"}
+        assert names == {"test_file", "source_file", "name", "mocks", "extra_srcs"}
 
     def test_mocks_defaults_empty(self):
         unit = TestUnit(test_file=Path("t.c"), source_file=None, name="x")
         assert unit.mocks == []
+
+    def test_extra_srcs_defaults_empty(self):
+        unit = TestUnit(test_file=Path("t.c"), source_file=None, name="x")
+        assert unit.extra_srcs == []
 
     def test_instantiate_with_keyword_args(self):
         unit = TestUnit(test_file=Path("test/test_uart.c"), source_file=None, name="uart")
@@ -254,6 +258,125 @@ class TestDiscover:
         spi = next(u for u in units if u.name == "spi")
         assert uart.source_file is not None
         assert spi.source_file is None
+
+
+    def test_multi_test_dir_list(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "test_a").mkdir()
+        (tmp_path / "test_b").mkdir()
+        (tmp_path / "src").mkdir()
+        (tmp_path / "test_a" / "test_uart.c").write_text("")
+        (tmp_path / "test_b" / "test_spi.c").write_text("")
+        (tmp_path / "src" / "uart.c").write_text("")
+        (tmp_path / "src" / "spi.c").write_text("")
+        (tmp_path / "forge.yml").write_text(
+            "project:\n  name: proj\n  test_dir:\n    - test_a\n    - test_b\n"
+        )
+        cfg = load_config(tmp_path / "forge.yml")
+        units = discover(cfg)
+        names = {u.name for u in units}
+        assert names == {"uart", "spi"}
+
+    def test_nested_test_file_via_rglob(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        nested = tmp_path / "test" / "module"
+        nested.mkdir(parents=True)
+        (tmp_path / "src").mkdir()
+        (nested / "test_uart.c").write_text("")
+        (tmp_path / "src" / "uart.c").write_text("")
+        (tmp_path / "forge.yml").write_text("project:\n  name: proj\n")
+        cfg = load_config(tmp_path / "forge.yml")
+        units = discover(cfg)
+        assert len(units) == 1
+        assert units[0].name == "uart"
+
+    def test_extra_srcs_populated_from_config(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "src").mkdir()
+        (tmp_path / "test").mkdir()
+        stub = tmp_path / "src" / "stub_helper.c"
+        stub.write_text("")
+        (tmp_path / "src" / "uart.c").write_text("")
+        (tmp_path / "test" / "test_uart.c").write_text("")
+        (tmp_path / "forge.yml").write_text(
+            "project:\n"
+            "  name: proj\n"
+            "  extra_srcs:\n"
+            "    uart:\n"
+            "      - src/stub_helper.c\n"
+        )
+        cfg = load_config(tmp_path / "forge.yml")
+        units = discover(cfg)
+        assert units[0].name == "uart"
+        assert Path("src/stub_helper.c") in units[0].extra_srcs
+
+    def test_extra_srcs_empty_for_unit_not_in_map(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        cfg = make_project(tmp_path, src_files=["uart.c"], test_files=["test_uart.c"])
+        units = discover(cfg)
+        assert units[0].extra_srcs == []
+
+
+class TestNamingConventions:
+    """discover() respects conventions.test_prefix and conventions.mock_prefix."""
+
+    def _forge(self, tmp_path: Path, extra_yaml: str = "") -> Path:
+        (tmp_path / "src").mkdir(exist_ok=True)
+        (tmp_path / "test").mkdir(exist_ok=True)
+        return tmp_path / "forge.yml"
+
+    def test_ceedling_test_prefix_discovers_Test_files(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "src").mkdir()
+        (tmp_path / "test").mkdir()
+        (tmp_path / "src" / "uart.c").write_text("")
+        (tmp_path / "test" / "TestUart.c").write_text("")
+        (tmp_path / "forge.yml").write_text(
+            "project:\n  name: proj\nconventions:\n  test_prefix: \"Test\"\n"
+        )
+        cfg = load_config(tmp_path / "forge.yml")
+        units = discover(cfg)
+        assert len(units) == 1
+        assert units[0].name == "Uart"
+
+    def test_default_prefix_does_not_discover_Test_files(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "src").mkdir()
+        (tmp_path / "test").mkdir()
+        (tmp_path / "src" / "uart.c").write_text("")
+        (tmp_path / "test" / "TestUart.c").write_text("")
+        (tmp_path / "forge.yml").write_text("project:\n  name: proj\n")
+        cfg = load_config(tmp_path / "forge.yml")
+        units = discover(cfg)
+        assert units == []
+
+    def test_ceedling_mock_prefix_parses_Mock_includes(self, tmp_path):
+        f = tmp_path / "TestFoo.c"
+        f.write_text('#include "MockClock.h"\n#include "MockTimer.h"\n')
+        result = _parse_mock_includes(f, mock_prefix="Mock")
+        assert result == ["Clock", "Timer"]
+
+    def test_default_mock_prefix_does_not_match_Mock_includes(self, tmp_path):
+        f = tmp_path / "test_foo.c"
+        f.write_text('#include "MockClock.h"\n')
+        result = _parse_mock_includes(f, mock_prefix="mock_")
+        assert result == []
+
+    def test_discover_with_Mock_prefix_populates_unit_mocks(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "src").mkdir()
+        (tmp_path / "test").mkdir()
+        (tmp_path / "src" / "uart.c").write_text("")
+        (tmp_path / "test" / "TestUart.c").write_text(
+            '#include "MockClock.h"\n'
+        )
+        (tmp_path / "forge.yml").write_text(
+            "project:\n  name: proj\n"
+            "conventions:\n  test_prefix: \"Test\"\n  mock_prefix: \"Mock\"\n"
+        )
+        cfg = load_config(tmp_path / "forge.yml")
+        units = discover(cfg)
+        assert units[0].mocks == ["Clock"]
 
 
 class TestParseMockIncludes:
