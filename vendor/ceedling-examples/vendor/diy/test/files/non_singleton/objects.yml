@@ -1,0 +1,27 @@
+# =========================================================================
+#   Ceedling - Test-Centered Build System for C
+#   ThrowTheSwitch.org
+#   Copyright (c) 2010-24 Mike Karlesky, Mark VanderVoord, & Greg Williams
+#   SPDX-License-Identifier: MIT
+# =========================================================================
+
+
+air:
+
+thread_spinner:
+  compose: air
+  singleton: false
+
+yard:
+
+pig:
+  compose: thread_spinner, yard
+
++inner_sanctum:
+  tick:
+    compose: thread_spinner
+    singleton: false
+
+  fat_cat:
+    compose: thread_spinner, tick, yard
+

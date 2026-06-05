@@ -1,0 +1,30 @@
+# =========================================================================
+#   Ceedling - Test-Centered Build System for C
+#   ThrowTheSwitch.org
+#   Copyright (c) 2010-24 Mike Karlesky, Mark VanderVoord, & Greg Williams
+#   SPDX-License-Identifier: MIT
+# =========================================================================
+
+
+thing_builder:
+
+method_extractor:
+  
+attached_things_builder:
+  
+method build_thing:
+    object: thing_builder
+    method: build
+    attach:
+    - attached_things_builder
+
+method build_default_thing:
+    object: thing_builder
+    method: build_default
+    attach:
+    - attached_things_builder
+    - things_builder
+    
+things_builder:
+  compose:
+    - build_thing
