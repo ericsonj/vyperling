@@ -29,6 +29,20 @@ class TestCase:
     message: str = ""
 
 
+def _normalize_suite(name: str) -> str:
+    """Normalize suite name: strip path prefix and leading 'Test' prefix.
+
+    Ceedling emits 'test/TestMain'; vyperling emits 'Main'.
+    Both normalize to 'Main'.
+    """
+    # strip path components (e.g. 'test/TestMain' -> 'TestMain')
+    name = name.rsplit("/", 1)[-1]
+    # strip leading 'Test' prefix (Ceedling convention)
+    if name.startswith("Test"):
+        name = name[4:]
+    return name
+
+
 def _parse_junit(path: Path) -> dict[str, TestCase]:
     try:
         tree = ET.parse(path)
@@ -36,20 +50,28 @@ def _parse_junit(path: Path) -> dict[str, TestCase]:
         print(f"ERROR: cannot parse {path}: {exc}", file=sys.stderr)
         sys.exit(2)
 
+    root = tree.getroot()
+    # handle both <testsuites><testsuite>... and bare <testsuite>...
+    suites = root.findall("testsuite") or ([root] if root.tag == "testsuite" else [])
+
     cases: dict[str, TestCase] = {}
-    for tc in tree.iter("testcase"):
-        classname = tc.get("classname", "")
-        name = tc.get("name", "")
-        key = f"{classname}::{name}"
-        failure = tc.find("failure")
-        error = tc.find("error")
-        passed = failure is None and error is None
-        msg = ""
-        if failure is not None:
-            msg = failure.get("message", failure.text or "")
-        elif error is not None:
-            msg = error.get("message", error.text or "")
-        cases[key] = TestCase(classname=classname, name=name, passed=passed, message=msg)
+    for suite in suites:
+        suite_name = _normalize_suite(suite.get("name", ""))
+        for tc in suite.findall("testcase"):
+            # use classname if present, else fall back to suite name
+            raw_classname = tc.get("classname", "")
+            classname = _normalize_suite(raw_classname) if raw_classname else suite_name
+            name = tc.get("name", "")
+            key = f"{classname}::{name}"
+            failure = tc.find("failure")
+            error = tc.find("error")
+            passed = failure is None and error is None
+            msg = ""
+            if failure is not None:
+                msg = failure.get("message", failure.text or "")
+            elif error is not None:
+                msg = error.get("message", error.text or "")
+            cases[key] = TestCase(classname=classname, name=name, passed=passed, message=msg)
     return cases
 
 

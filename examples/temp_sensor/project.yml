@@ -70,7 +70,7 @@
     #- report_build_warnings_log
     #- report_tests_gtestlike_stdout
     #- report_tests_ide_stdout
-    #- report_tests_log_factory
+    - report_tests_log_factory
     - report_tests_pretty_stdout
     #- report_tests_raw_output_log
     #- report_tests_teamcity_stdout

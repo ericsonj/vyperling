@@ -54,10 +54,7 @@ void setValueAndVerifyResponse(float input, float response)
   }
 }
 
-//These ugly line-continuations are here just to show that you can use them:
-void testShouldWeightEachSubsequentValue\
-By25Percent\
-AfterInitialValue(void)
+void testShouldWeightEachSubsequentValueBy25PercentAfterInitialValue(void)
 {
   TemperatureFilter_Init();
   setValueAndVerifyResponse(0.0f, 0.0f);

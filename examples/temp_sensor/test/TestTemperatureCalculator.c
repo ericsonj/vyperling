@@ -11,7 +11,7 @@
 
 TEST_SOURCE_FILE("TemperatureCalculator.c")
 
-extern float TemperatureCalculator_Calculate(uint16 val);
+extern float TemperatureCalculator_Calculate(uint16_t val);
 
 void setUp(void)
 {
