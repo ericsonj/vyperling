@@ -180,6 +180,16 @@ class TestNamingConventions:
         result = extract_tests(f, test_prefix="Test", test_naming="camelCase")
         assert result == ["TestInit", "TestRun"]
 
+    def test_ceedling_pattern_Test_file_test_functions(self, tmp_path):
+        # Ceedling uses Test*.c files but void test*() functions (lowercase t).
+        # With test_prefix="Test" + camelCase, both Test* and test* are matched.
+        f = _write(
+            tmp_path / "TestFoo.c",
+            "void testInit(void) {}\nvoid testRun(void) {}\n",
+        )
+        result = extract_tests(f, test_prefix="Test", test_naming="camelCase")
+        assert result == ["testInit", "testRun"]
+
     def test_camelcase_deduplication(self, tmp_path):
         f = _write(
             tmp_path / "TestFoo.c",

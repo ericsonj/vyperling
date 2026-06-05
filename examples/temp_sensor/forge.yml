@@ -1,0 +1,39 @@
+project:
+  name: temp_sensor
+  src_dirs:
+    - src
+    - src/calculators
+  include_dirs:
+    - src
+    - src/calculators
+    - test/support
+  test_dir: test
+  mock_dir: mocks
+  build_dir: build
+  support_srcs:
+    - test/support/UnityHelper.c
+  extra_srcs:
+    TimerIntegrated:
+      - src/TimerConductor.c
+      - src/TimerHardware.c
+      - src/TimerModel.c
+    UsartIntegrated:
+      - src/UsartConductor.c
+      - src/UsartModel.c
+      - src/UsartHardware.c
+
+compiler:
+  defines:
+    - TEST
+    - "SUPPLY_VOLTAGE=3.0"
+    - "TEST_USART_INTEGRATED_STRING=\"It's Awesome Time!\\n\""
+  extra_ldflags:
+    - -lm
+
+targets:
+  default: native
+
+conventions:
+  test_prefix: "Test"
+  mock_prefix: "Mock"
+  test_naming: "camelCase"

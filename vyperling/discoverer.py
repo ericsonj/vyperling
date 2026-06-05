@@ -9,8 +9,10 @@ from pathlib import Path
 
 def _mock_include_re(mock_prefix: str) -> re.Pattern:
     p = re.escape(mock_prefix)
+    # Allow an optional path prefix (e.g. "calculators/MockFoo.h") before the
+    # mock prefix — the dep name captured is always just the stem after the prefix.
     return re.compile(
-        rf'^\s*#\s*include\s+"{p}([A-Za-z0-9_]+)\.h"', re.MULTILINE
+        rf'^\s*#\s*include\s+"(?:[^"*/]*/)*{p}([A-Za-z0-9_]+)\.h"', re.MULTILINE
     )
 
 

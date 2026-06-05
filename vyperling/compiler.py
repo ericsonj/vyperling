@@ -139,7 +139,8 @@ def compile_unit(
         flags += ["--coverage", "-fprofile-arcs", "-ftest-coverage"]
     flags += ["-I" + str(d) for d in include_dirs]
 
-    cmd = [toolchain.cc] + flags + [str(s) for s in sources] + ["-o", str(binary)]
+    ldflags: list[str] = list(config["compiler"].get("extra_ldflags", []))
+    cmd = [toolchain.cc] + flags + [str(s) for s in sources] + ["-o", str(binary)] + ldflags
 
     if verbose:
         print(" ".join(cmd))

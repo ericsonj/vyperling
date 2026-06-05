@@ -12,13 +12,20 @@ import re
 from pathlib import Path
 
 def _test_func_re(test_prefix: str, test_naming: str) -> re.Pattern:
-    """Build the regex that finds test function definitions for the given conventions."""
+    """Build the regex that finds test function definitions for the given conventions.
+
+    camelCase mode matches both the exact prefix and its lowercase variant so that
+    Ceedling projects with file prefix ``Test`` but function prefix ``test`` work
+    without extra config.
+    """
     if test_naming == "camelCase":
-        # testFooBar or TestFooBar — prefix followed immediately by an uppercase letter
         p = re.escape(test_prefix)
-        name_pat = rf"{p}[A-Za-z0-9_]+"
+        p_lower = re.escape(test_prefix[0].lower() + test_prefix[1:])
+        if p == p_lower:
+            name_pat = rf"{p}[A-Za-z0-9_]+"
+        else:
+            name_pat = rf"(?:{p}|{p_lower})[A-Za-z0-9_]+"
     else:
-        # snake_case default: test_foo_bar
         p = re.escape(test_prefix)
         name_pat = rf"{p}[A-Za-z0-9_]+"
     return re.compile(

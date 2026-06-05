@@ -26,6 +26,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "compiler": {
         "extra_cflags": [],
+        "extra_ldflags": [],
         "defines": [],
     },
     "toolchains": {},
