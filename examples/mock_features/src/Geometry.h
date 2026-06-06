@@ -6,10 +6,8 @@
  * Complete structs (members visible) are captured & byte-compared by the mock
  * via UNITY_TEST_ASSERT_EQUAL_MEMORY — sizeof is known.
  *
- * Incomplete (opaque) structs — forward-declared only, sizeof unknown — cannot
- * be stored or compared, so functions taking one by value are SKIPPED with a
- * warning. A pointer to the same opaque struct is fine (sizeof is pointer-size).
- */
+ * Pointer-to-opaque is fine — sizeof is pointer-size regardless of the
+ * struct body. use_opaque_ptr() demonstrates this case. */
 
 struct Point {
     int x;
@@ -21,16 +19,14 @@ typedef struct {
     int height;
 } Size;
 
-/* opaque — defined elsewhere, body not visible here */
+/* opaque — body not visible in this header; typedef'd so CMock can treat as PTR */
 struct Opaque;
+typedef struct Opaque Opaque_t;
 
 int classify_point(struct Point p);
 int area(Size s);
 
-/* SKIPPED by mockgen: opaque struct by value */
-void use_opaque(struct Opaque o);
-
-/* NOT skipped: pointer to opaque is just a pointer */
-void use_opaque_ptr(struct Opaque *o);
+/* pointer to opaque — mockable (pointer has known size) */
+void use_opaque_ptr(Opaque_t *o);
 
 #endif /* GEOMETRY_H */

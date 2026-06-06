@@ -17,12 +17,7 @@ int area(Size s)
     return s.width * s.height;
 }
 
-void use_opaque(struct Opaque o)
-{
-    (void)o;
-}
-
-void use_opaque_ptr(struct Opaque *o)
+void use_opaque_ptr(Opaque_t *o)
 {
     (void)o;
 }

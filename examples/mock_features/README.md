@@ -8,7 +8,7 @@ were skipped in v0.1 and are now fully supported:
 | **Variadic functions** | `int log_printf(const char *fmt, ...)` | Fixed params captured & asserted; the variadic tail is ignored (a `va_list` can't be inspected after the call). `_Expect`/`_ExpectAndReturn` cover only the fixed params. |
 | **Function-pointer params** | `void register_cb(void (*cb)(int))` | The pointer is stored as `void *` and asserted by identity via `UNITY_TEST_ASSERT_EQUAL_PTR` — "was the right callback passed?". |
 | **Complete struct-by-value** | `int classify_point(struct Point p)` | Byte-compared with `UNITY_TEST_ASSERT_EQUAL_MEMORY` (`sizeof` is known). |
-| **Incomplete struct-by-value** | `void use_opaque(struct Opaque o)` | **Skipped** with a warning — `sizeof` is unknown for a forward-declared struct. The pointer variant `use_opaque_ptr` is mocked normally. |
+| **Pointer-to-opaque** | `void use_opaque_ptr(struct Opaque *o)` | Mocked normally — pointer size is always known. |
 
 ## Layout
 
@@ -43,13 +43,6 @@ vpl test            # discover → mock → compile → run → report
 vpl test -k Logger  # just the variadic tests
 ```
 
-You will see a warning during mock generation:
-
-```
-vyperling mockgen: skipping 'use_opaque' in Geometry.h —
-  parameter 'o' is an incomplete struct by value (forward-declared only);
-  cannot determine sizeof
-```
-
-That warning is expected and is the only un-mockable case — everything else is
-generated and the tests pass.
+All tests pass with no warnings — the struct Opaque forward declaration is present in
+`Geometry.h` (enabling the pointer variant) but `use_opaque_ptr` is the only function
+using it, and pointer size is always known.

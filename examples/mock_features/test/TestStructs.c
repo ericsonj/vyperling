@@ -1,9 +1,7 @@
 /* TestGeometry — struct-by-value parameters.
  *
  * Complete structs (Point, Size) are byte-compared by the mock.
- * The opaque-struct-by-value function (use_opaque) is SKIPPED by mockgen with
- * a warning, so no use_opaque_Expect symbol exists — only the pointer variant
- * (use_opaque_ptr) is mocked. */
+ * Pointer-to-opaque (use_opaque_ptr) is mocked normally — pointer size is known. */
 
 #include "unity.h"
 #include "Geometry.h"
@@ -26,10 +24,9 @@ void testAnonymousTypedefStructByValue(void)
     TEST_ASSERT_EQUAL_INT(12, area(s));
 }
 
-void testOpaqueStructPointerStillMocked(void)
+void testOpaqueStructPointerMocked(void)
 {
-    /* use_opaque(struct Opaque) is skipped; the pointer variant is fine. */
-    struct Opaque *o = (struct Opaque *)0x1234;
+    Opaque_t *o = (Opaque_t *)0x1234;
     use_opaque_ptr_Expect(o);
     use_opaque_ptr(o);
 }

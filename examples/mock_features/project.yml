@@ -50,15 +50,10 @@
 :paths:
   :test:
     - +:test/**
-    - -:test/support
   :source:
     - src/**
   :include:
     - src/**
-    # test/support provides struct Opaque body for CMock generation only
-    - test/support
-  :support:
-    - test/support
   :libraries: []
 
 :files:
@@ -77,6 +72,9 @@
   :enforce_strict_ordering: TRUE
   :plugins:
     - :ignore
+    - :ignore_arg
     - :callback
+  :treat_as:
+    Opaque_t: PTR
 
 :environment: []
