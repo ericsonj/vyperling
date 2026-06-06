@@ -424,10 +424,17 @@ void forge_mocks_reset(void);
 - Handle pointer return types and pointer parameters correctly
 - Does not require a full C parser — regex is sufficient for well-formed headers
 
-**Limitations (v0.1):**
-- No variadic function support (`...`)
-- No function pointer parameters
-- Does not parse `#include`d transitive headers
+**Limitations:**
+- Incomplete (opaque) struct-by-value params are skipped with a warning — a
+  forward-declared `struct Foo` has unknown `sizeof`. (Variadic functions and
+  function-pointer params, listed here in v0.1, are now SUPPORTED as of v0.0.2.)
+- Transitive `#include`d declarations are intentionally NOT mocked (only functions
+  declared in the target header itself) — prevents duplicate-symbol link errors.
+
+> NOTE: Sections 6.7 and 10 describe the original regex-parser design. The real
+> implementation uses pycparser + Jinja2 and emits the full CMock-style API. The
+> module docstring in `mockgen.py` is authoritative; these sections are retained
+> for historical context only.
 
 ### 6.8 `coverage.py`
 
@@ -934,7 +941,7 @@ jobs:
 ### v0.0.2
 - Add examples in repository root for users to clone and test with, FreeRTOS + STM32 example project, etc. (Note: the examples should test them with ceedling and vyperling to verify compatibility, migration reference, documentation and functionality validation)
 - Refine coverage report generation: add a summary line with percentage, fail the run if coverage is below a threshold and print coverage details in the terminal
-- Testing real application code and fix limitations
+- ✅ Lifted mockgen limitations — variadic functions, function-pointer params, and complete struct-by-value params now mocked (demo: `examples/mock_features`); only opaque struct-by-value remains skipped
 
 ### v0.0.3
 - Full C preprocessor awareness in mockgen (handle `#ifdef`-guarded declarations)

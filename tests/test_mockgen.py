@@ -153,21 +153,43 @@ class TestParseHeader:
         assert p[1].name == "len"
         assert p[1].assert_suffix == "UINT16"
 
-    def test_variadic_is_skipped(self, tmp_path):
+    def test_variadic_not_skipped(self, tmp_path):
         h = _write(tmp_path / "src" / "uart.h", UART_H)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            funcs = _by_name(parse_header(h, _config(h.parent), _native()))
-        assert funcs["printf_like"].skipped is True
-        assert "variadic" in funcs["printf_like"].skip_reason
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["printf_like"].skipped is False
+        assert funcs["printf_like"].is_variadic is True
 
-    def test_fnptr_param_is_skipped(self, tmp_path):
+    def test_variadic_fixed_params_captured(self, tmp_path):
         h = _write(tmp_path / "src" / "uart.h", UART_H)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            funcs = _by_name(parse_header(h, _config(h.parent), _native()))
-        assert funcs["with_callback"].skipped is True
-        assert "function-pointer" in funcs["with_callback"].skip_reason
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        p = funcs["printf_like"].params
+        assert len(p) == 1
+        assert p[0].name == "fmt"
+
+    def test_fnptr_param_not_skipped(self, tmp_path):
+        h = _write(tmp_path / "src" / "uart.h", UART_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["with_callback"].skipped is False
+
+    def test_fnptr_param_is_fnptr_true(self, tmp_path):
+        h = _write(tmp_path / "src" / "uart.h", UART_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["with_callback"].params[0].is_fnptr is True
+
+    def test_fnptr_param_storage_type_void_ptr(self, tmp_path):
+        h = _write(tmp_path / "src" / "uart.h", UART_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["with_callback"].params[0].storage_type == "void *"
+
+    def test_fnptr_param_assert_suffix_PTR(self, tmp_path):
+        h = _write(tmp_path / "src" / "uart.h", UART_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["with_callback"].params[0].assert_suffix == "PTR"
+
+    def test_fnptr_no_return_thru(self, tmp_path):
+        h = _write(tmp_path / "src" / "uart.h", UART_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["with_callback"].return_thru_params == []
 
     def test_return_thru_only_for_writable_ptr(self, tmp_path):
         h = _write(tmp_path / "src" / "uart.h", UART_H)
@@ -246,16 +268,156 @@ class TestGenerateMockText:
         assert "UNITY_TEST_ASSERT_EQUAL_STRING" in text
         assert "UNITY_TEST_ASSERT_EQUAL_UINT16" in text
 
-    def test_skipped_functions_absent(self, tmp_path):
+    def test_variadic_and_fnptr_now_in_header(self, tmp_path):
         h_path, _ = self._gen(tmp_path)
         text = h_path.read_text()
-        assert "printf_like" not in text
-        assert "with_callback" not in text
+        assert "printf_like" in text
+        assert "with_callback" in text
 
-    def test_generation_warns_on_skipped(self, tmp_path):
-        h = _write(tmp_path / "src" / "uart.h", UART_H)
-        with pytest.warns(UserWarning):
+    def test_variadic_decl_has_ellipsis(self, tmp_path):
+        _, c_path = self._gen(tmp_path)
+        text = c_path.read_text()
+        assert "printf_like(" in text
+        assert "...)" in text
+
+    def test_variadic_expect_has_only_fixed_params(self, tmp_path):
+        h_path, _ = self._gen(tmp_path)
+        text = h_path.read_text()
+        assert "printf_like_ExpectAndReturn(" in text
+        assert "cmock_to_return" in text
+        # Ellipsis must NOT appear in the Expect signature
+        lines = [l for l in text.splitlines() if "printf_like_ExpectAndReturn" in l]
+        assert all("..." not in l for l in lines)
+
+    def test_fnptr_struct_field_is_void_ptr(self, tmp_path):
+        _, c_path = self._gen(tmp_path)
+        text = c_path.read_text()
+        assert "void *" in text and "expected_cb" in text
+
+    def test_fnptr_assert_uses_equal_ptr(self, tmp_path):
+        _, c_path = self._gen(tmp_path)
+        assert "UNITY_TEST_ASSERT_EQUAL_PTR" in c_path.read_text()
+
+    def test_fnptr_cast_in_expect(self, tmp_path):
+        _, c_path = self._gen(tmp_path)
+        assert "(void *)cb" in c_path.read_text()
+
+    def test_generation_no_warn_without_skipped(self, tmp_path):
+        h = _write(
+            tmp_path / "src" / "clean.h",
+            "int clean_fn(int x);\n",
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
             generate_mock(h, tmp_path / "mocks", _config(h.parent), _native())
+
+
+# ---------------------------------------------------------------------------
+# Layer 4b — opaque struct skip detection
+# ---------------------------------------------------------------------------
+
+OPAQUE_H = """\
+struct Opaque;
+void use_opaque(struct Opaque x);
+void use_opaque_ptr(struct Opaque *x);
+"""
+
+TYPEDEF_OPAQUE_H = """\
+typedef struct _Opaque Opaque_t;
+void use_typedef_opaque(Opaque_t x);
+void use_typedef_opaque_ptr(Opaque_t *x);
+"""
+
+COMPLETE_STRUCT_H = """\
+struct Point { int x; int y; };
+void move_point(struct Point p);
+"""
+
+TYPEDEF_COMPLETE_H = """\
+typedef struct _Point { int x; int y; } Point_t;
+void move_typedef_point(Point_t p);
+"""
+
+ANON_TYPEDEF_H = """\
+typedef struct { int width; int height; } Size;
+int area(Size s);
+"""
+
+OPAQUE_PTR_RTP_H = """\
+struct Opaque;
+void use_opaque_ptr(struct Opaque *o);
+"""
+
+
+class TestOpaqueStructDetection:
+    def test_opaque_struct_by_value_is_skipped(self, tmp_path):
+        h = _write(tmp_path / "src" / "opaque.h", OPAQUE_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["use_opaque"].skipped is True
+
+    def test_opaque_skip_reason_mentions_incomplete(self, tmp_path):
+        h = _write(tmp_path / "src" / "opaque.h", OPAQUE_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert "incomplete" in funcs["use_opaque"].skip_reason
+
+    def test_opaque_ptr_not_skipped(self, tmp_path):
+        h = _write(tmp_path / "src" / "opaque.h", OPAQUE_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["use_opaque_ptr"].skipped is False
+
+    def test_typedef_opaque_by_value_is_skipped(self, tmp_path):
+        h = _write(tmp_path / "src" / "opaque.h", TYPEDEF_OPAQUE_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["use_typedef_opaque"].skipped is True
+
+    def test_typedef_opaque_ptr_not_skipped(self, tmp_path):
+        h = _write(tmp_path / "src" / "opaque.h", TYPEDEF_OPAQUE_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["use_typedef_opaque_ptr"].skipped is False
+
+    def test_complete_struct_not_skipped(self, tmp_path):
+        h = _write(tmp_path / "src" / "point.h", COMPLETE_STRUCT_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["move_point"].skipped is False
+
+    def test_complete_struct_treat_as_memory(self, tmp_path):
+        h = _write(tmp_path / "src" / "point.h", COMPLETE_STRUCT_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["move_point"].params[0].assert_suffix == "MEMORY"
+
+    def test_typedef_complete_struct_not_skipped(self, tmp_path):
+        h = _write(tmp_path / "src" / "point.h", TYPEDEF_COMPLETE_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["move_typedef_point"].skipped is False
+
+    def test_anon_typedef_struct_not_skipped(self, tmp_path):
+        # `typedef struct { ... } Size;` is complete despite having no tag name.
+        h = _write(tmp_path / "src" / "size.h", ANON_TYPEDEF_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["area"].skipped is False
+        assert funcs["area"].params[0].assert_suffix == "MEMORY"
+
+    def test_opaque_ptr_has_no_return_thru(self, tmp_path):
+        # A pointer to an incomplete struct must NOT get ReturnThruPtr — its
+        # pointee sizeof is unknown, so the `_thru` copy field can't be sized.
+        h = _write(tmp_path / "src" / "op.h", OPAQUE_PTR_RTP_H)
+        funcs = _by_name(parse_header(h, _config(h.parent), _native()))
+        assert funcs["use_opaque_ptr"].skipped is False
+        assert funcs["use_opaque_ptr"].return_thru_params == []
+
+    def test_opaque_absent_from_generated_header(self, tmp_path):
+        h = _write(tmp_path / "src" / "opaque.h", OPAQUE_H)
+        with pytest.warns(UserWarning):
+            h_path, _ = generate_mock(h, tmp_path / "mocks", _config(h.parent), _native())
+        text = h_path.read_text()
+        assert "use_opaque_Expect" not in text
+        assert "use_opaque_ptr" in text  # pointer variant must still be there
+
+    def test_opaque_ptr_present_in_generated_header(self, tmp_path):
+        h = _write(tmp_path / "src" / "opaque.h", OPAQUE_H)
+        with pytest.warns(UserWarning):
+            h_path, _ = generate_mock(h, tmp_path / "mocks", _config(h.parent), _native())
+        assert "use_opaque_ptr_Expect" in h_path.read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +538,236 @@ int main(void){ UNITY_BEGIN(); RUN_TEST(test_missing); return UNITY_END(); }
 
 
 # ---------------------------------------------------------------------------
-# Layer 5b — _storage_type (pure)
+# Layer 5b — E2E for variadic and fnptr (gated on gcc)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(not HAVE_GCC, reason="gcc not installed")
+class TestEndToEndVariadic:
+    VARIADIC_HEADER = """\
+int log_printf(const char *fmt, ...);
+void log_event(int code, ...);
+"""
+
+    def _build(self, tmp_path, test_src: str) -> Path:
+        src = tmp_path / "src"
+        _write(src / "log.h", self.VARIADIC_HEADER)
+        mock_dir = tmp_path / "mocks"
+        generate_mock(src / "log.h", mock_dir, _config(src), _native())
+        test_c = _write(tmp_path / "test_log.c", test_src)
+        cdir = get_unity_include_dir()
+        binary = tmp_path / "test_log"
+        cmd = [
+            "gcc", "-Wall",
+            f"-I{src}", f"-I{mock_dir}", f"-I{cdir}",
+            str(test_c), str(mock_dir / "mock_log.c"),
+            str(get_unity_c_path()), str(get_forge_mock_c_path()),
+            "-o", str(binary),
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stderr
+        return binary
+
+    def test_variadic_compiles_and_passes(self, tmp_path):
+        src = """\
+#include "unity.h"
+#include "mock_log.h"
+void setUp(void)    { mock_log_Init(); }
+void tearDown(void) { mock_log_Verify(); mock_log_Destroy(); }
+void test_variadic(void) {
+    log_printf_ExpectAndReturn("hello", 42);
+    /* extra variadic args ignored by mock */
+    TEST_ASSERT_EQUAL_INT(42, log_printf("hello", 1, 2, 3));
+}
+int main(void){ UNITY_BEGIN(); RUN_TEST(test_variadic); return UNITY_END(); }
+"""
+        binary = self._build(tmp_path, src)
+        proc = subprocess.run([str(binary)], capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stdout
+        assert "OK" in proc.stdout
+
+    def test_variadic_fixed_arg_mismatch_fails(self, tmp_path):
+        src = """\
+#include "unity.h"
+#include "mock_log.h"
+void setUp(void)    { mock_log_Init(); }
+void tearDown(void) { mock_log_Verify(); mock_log_Destroy(); }
+void test_mismatch(void) {
+    log_printf_ExpectAndReturn("expected", 0);
+    log_printf("actual", 99);
+}
+int main(void){ UNITY_BEGIN(); RUN_TEST(test_mismatch); return UNITY_END(); }
+"""
+        binary = self._build(tmp_path, src)
+        proc = subprocess.run([str(binary)], capture_output=True, text=True)
+        assert proc.returncode != 0
+        assert "FAIL" in proc.stdout
+
+    def test_void_variadic_expect(self, tmp_path):
+        src = """\
+#include "unity.h"
+#include "mock_log.h"
+void setUp(void)    { mock_log_Init(); }
+void tearDown(void) { mock_log_Verify(); mock_log_Destroy(); }
+void test_void_variadic(void) {
+    log_event_Expect(7);
+    log_event(7, "extra", 99);
+}
+int main(void){ UNITY_BEGIN(); RUN_TEST(test_void_variadic); return UNITY_END(); }
+"""
+        binary = self._build(tmp_path, src)
+        proc = subprocess.run([str(binary)], capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stdout
+
+
+@pytest.mark.skipif(not HAVE_GCC, reason="gcc not installed")
+class TestEndToEndFnptr:
+    FNPTR_HEADER = """\
+void register_cb(void (*cb)(int));
+int transform(int (*fn)(int, int), int x, int y);
+"""
+
+    def _build(self, tmp_path, test_src: str) -> Path:
+        src = tmp_path / "src"
+        _write(src / "cb.h", self.FNPTR_HEADER)
+        mock_dir = tmp_path / "mocks"
+        generate_mock(src / "cb.h", mock_dir, _config(src), _native())
+        test_c = _write(tmp_path / "test_cb.c", test_src)
+        cdir = get_unity_include_dir()
+        binary = tmp_path / "test_cb"
+        cmd = [
+            "gcc", "-Wall",
+            f"-I{src}", f"-I{mock_dir}", f"-I{cdir}",
+            str(test_c), str(mock_dir / "mock_cb.c"),
+            str(get_unity_c_path()), str(get_forge_mock_c_path()),
+            "-o", str(binary),
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stderr
+        return binary
+
+    def test_fnptr_compiles_and_matches(self, tmp_path):
+        src = """\
+#include "unity.h"
+#include "mock_cb.h"
+static void my_cb(int x) { (void)x; }
+void setUp(void)    { mock_cb_Init(); }
+void tearDown(void) { mock_cb_Verify(); mock_cb_Destroy(); }
+void test_fnptr(void) {
+    register_cb_Expect(my_cb);
+    register_cb(my_cb);
+}
+int main(void){ UNITY_BEGIN(); RUN_TEST(test_fnptr); return UNITY_END(); }
+"""
+        binary = self._build(tmp_path, src)
+        proc = subprocess.run([str(binary)], capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stdout
+        assert "OK" in proc.stdout
+
+    def test_fnptr_mismatch_fails(self, tmp_path):
+        src = """\
+#include "unity.h"
+#include "mock_cb.h"
+static void cb_a(int x) { (void)x; }
+static void cb_b(int x) { (void)x; }
+void setUp(void)    { mock_cb_Init(); }
+void tearDown(void) { mock_cb_Verify(); mock_cb_Destroy(); }
+void test_wrong_cb(void) {
+    register_cb_Expect(cb_a);
+    register_cb(cb_b);
+}
+int main(void){ UNITY_BEGIN(); RUN_TEST(test_wrong_cb); return UNITY_END(); }
+"""
+        binary = self._build(tmp_path, src)
+        proc = subprocess.run([str(binary)], capture_output=True, text=True)
+        assert proc.returncode != 0
+        assert "FAIL" in proc.stdout
+
+    def test_fnptr_with_return_value(self, tmp_path):
+        src = """\
+#include "unity.h"
+#include "mock_cb.h"
+static int add(int a, int b) { return a + b; }
+void setUp(void)    { mock_cb_Init(); }
+void tearDown(void) { mock_cb_Verify(); mock_cb_Destroy(); }
+void test_transform(void) {
+    transform_ExpectAndReturn(add, 3, 4, 99);
+    TEST_ASSERT_EQUAL_INT(99, transform(add, 3, 4));
+}
+int main(void){ UNITY_BEGIN(); RUN_TEST(test_transform); return UNITY_END(); }
+"""
+        binary = self._build(tmp_path, src)
+        proc = subprocess.run([str(binary)], capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stdout
+        assert "OK" in proc.stdout
+
+
+@pytest.mark.skipif(not HAVE_GCC, reason="gcc not installed")
+class TestEndToEndCompleteStruct:
+    STRUCT_HEADER = """\
+struct Point { int x; int y; };
+void move_point(struct Point p);
+int classify_point(struct Point p);
+"""
+
+    def _build(self, tmp_path, test_src: str) -> Path:
+        src = tmp_path / "src"
+        _write(src / "point.h", self.STRUCT_HEADER)
+        mock_dir = tmp_path / "mocks"
+        generate_mock(src / "point.h", mock_dir, _config(src), _native())
+        test_c = _write(tmp_path / "test_point.c", test_src)
+        cdir = get_unity_include_dir()
+        binary = tmp_path / "test_point"
+        cmd = [
+            "gcc", "-Wall",
+            f"-I{src}", f"-I{mock_dir}", f"-I{cdir}",
+            str(test_c), str(mock_dir / "mock_point.c"),
+            str(get_unity_c_path()), str(get_forge_mock_c_path()),
+            "-o", str(binary),
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stderr
+        return binary
+
+    def test_complete_struct_by_value_compiles(self, tmp_path):
+        src = """\
+#include "unity.h"
+#include "mock_point.h"
+void setUp(void)    { mock_point_Init(); }
+void tearDown(void) { mock_point_Verify(); mock_point_Destroy(); }
+void test_struct(void) {
+    struct Point p = {3, 4};
+    classify_point_ExpectAndReturn(p, 1);
+    TEST_ASSERT_EQUAL_INT(1, classify_point(p));
+}
+int main(void){ UNITY_BEGIN(); RUN_TEST(test_struct); return UNITY_END(); }
+"""
+        binary = self._build(tmp_path, src)
+        proc = subprocess.run([str(binary)], capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stdout
+        assert "OK" in proc.stdout
+
+    def test_struct_mismatch_fails(self, tmp_path):
+        src = """\
+#include "unity.h"
+#include "mock_point.h"
+void setUp(void)    { mock_point_Init(); }
+void tearDown(void) { mock_point_Verify(); mock_point_Destroy(); }
+void test_struct_mismatch(void) {
+    struct Point expected = {1, 2};
+    struct Point actual   = {9, 9};
+    classify_point_ExpectAndReturn(expected, 0);
+    classify_point(actual);
+}
+int main(void){ UNITY_BEGIN(); RUN_TEST(test_struct_mismatch); return UNITY_END(); }
+"""
+        binary = self._build(tmp_path, src)
+        proc = subprocess.run([str(binary)], capture_output=True, text=True)
+        assert proc.returncode != 0
+        assert "FAIL" in proc.stdout
+
+
+# ---------------------------------------------------------------------------
+# Layer 6 — _storage_type (pure)
 # ---------------------------------------------------------------------------
 
 class TestStorageType:

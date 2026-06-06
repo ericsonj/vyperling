@@ -158,8 +158,70 @@ jobs:
             examples/temp_sensor/build/native/results.xml
           if-no-files-found: ignore
 
+  mock-features-compat:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: false
+
+      - name: Install Ceedling
+        run: gem install ceedling -v 1.0.1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Load cached venv
+        id: cached-poetry-dependencies
+        uses: actions/cache@v3
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-3.11-mock-features-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install dependencies
+        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+        run: poetry install --with dev
+
+      - name: Run Ceedling
+        working-directory: examples/mock_features
+        run: ceedling test:all
+
+      - name: Run vyperling
+        working-directory: examples/mock_features
+        run: poetry run vpl test --output junit
+
+      - name: Compare results
+        run: |
+          poetry run python scripts/compare_results.py \
+            --ceedling examples/mock_features/build/artifacts/test/junit_tests_report.xml \
+            --vpl examples/mock_features/build/native/results.xml
+
+      - name: Upload comparison artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mock-features-compat-results
+          path: |
+            examples/mock_features/build/artifacts/test/junit_tests_report.xml
+            examples/mock_features/build/native/results.xml
+          if-no-files-found: ignore
+
   publish:
-    needs: [test-native, test-mips32, ceedling-compat]
+    needs: [test-native, test-mips32, ceedling-compat, mock-features-compat]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

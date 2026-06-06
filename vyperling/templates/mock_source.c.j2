@@ -56,7 +56,9 @@ static int              {{ f.name }}_callback_calls;
         if (!c->ignore_args) {
 {% for p in f.params %}
             if (!c->ignore_{{ p.name }}) {
-{% if p.assert_suffix == "MEMORY" %}
+{% if p.is_fnptr %}
+                UNITY_TEST_ASSERT_EQUAL_PTR(c->expected_{{ p.name }}, (void *){{ p.name }}, __LINE__, "{{ f.name }}: arg '{{ p.name }}' mismatch");
+{% elif p.assert_suffix == "MEMORY" %}
                 UNITY_TEST_ASSERT_EQUAL_MEMORY(&c->expected_{{ p.name }}, &{{ p.name }}, sizeof(c->expected_{{ p.name }}), __LINE__, "{{ f.name }}: arg '{{ p.name }}' mismatch");
 {% else %}
                 UNITY_TEST_ASSERT_EQUAL_{{ p.assert_suffix }}(c->expected_{{ p.name }}, {{ p.name }}, __LINE__, "{{ f.name }}: arg '{{ p.name }}' mismatch");
@@ -86,7 +88,11 @@ void {{ f.name }}_Expect({{ f.expect_params }})
         forge_mock_set_line(__LINE__);
         c->ignore_args = 0;
 {% for p in f.params %}
+{% if p.is_fnptr %}
+        c->expected_{{ p.name }} = (void *){{ p.name }};
+{% else %}
         c->expected_{{ p.name }} = {{ p.name }};
+{% endif %}
 {% endfor %}
     }
 }
@@ -110,7 +116,11 @@ void {{ f.name }}_ExpectAndReturn({{ f.expect_and_return_params }})
         forge_mock_set_line(__LINE__);
         c->ignore_args = 0;
 {% for p in f.params %}
+{% if p.is_fnptr %}
+        c->expected_{{ p.name }} = (void *){{ p.name }};
+{% else %}
         c->expected_{{ p.name }} = {{ p.name }};
+{% endif %}
 {% endfor %}
         c->return_val = cmock_to_return;
     }

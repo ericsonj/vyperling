@@ -404,6 +404,8 @@ now unblocked.
 | ~~Medium~~ **FIXED rc.1** | `runner.py` — `run_binary()` | Compile stderr not surfaced when binary was `None` — compile errors invisible in the run report. | rc.1 | `RunResult.stderr` now set to `compile_result.output` when binary is absent. |
 | ~~High~~ **FIXED rc.1** | `compiler.py` + `runnergen.py` | No Unity runner generated — test binaries had no `main()` and failed to link in real projects. `runnergen.py` did not exist. | rc.1 | New `runnergen.py` module generates `<unit>_runner.c` (main + RUN_TEST list + CMock lifecycle). `compile_unit` calls it and links the result. |
 | Low | `runnergen.py` — `_has_symbol()` | Word-boundary regex matches commented-out symbols (e.g. `/* setUp */`). A commented-out `setUp` would suppress the generated default stub. | rc.1 | Strip C comments before symbol search, or use a stricter definition-only regex. |
+| ~~Medium~~ **FIXED v0.0.2** | `mockgen.py` — `_is_opaque_struct_param()` | Anonymous typedef struct (`typedef struct { ... } Size;`) wrongly skipped: it resolves to `Struct(name=None)`, and the old code did `struct_defs.get(None)` → False → flagged opaque, even though `decls` was present (complete). | v0.0.2 (found building `examples/mock_features`) | Check the resolved struct's own `decls` before the tag-name lookup — a non-None member list means complete regardless of tag name. |
+| ~~Medium~~ **FIXED v0.0.2** | `mockgen.py` — `_build_param()` | `_ReturnThruPtr_*` was emitted for a pointer to an incomplete struct (`struct Opaque *o`), generating a `struct Opaque o_thru;` field of incomplete type → compile error. | v0.0.2 (found building `examples/mock_features`) | New `_pointee_is_incomplete_struct` guard excludes pointer-to-incomplete from `return_thru`, same as the existing `void *` exclusion. |
 
 ---
 
@@ -416,15 +418,29 @@ what the constraint is, why it exists, how severe it is, and the concrete path t
 
 ### mockgen.py
 
-**Variadic and function-pointer params — functions skipped entirely**
-`_extract_functions` detects `EllipsisParam` and `PtrDecl`→`FuncDecl` params and emits
-the whole function as `skipped=True`. The function receives a warning but produces no mock
-at all. For variadic functions the problem is fundamental — no fixed arity means no
-`EXPECT_*` family can be generated. For function-pointer params the problem is tractable:
-pycparser gives the full `PtrDecl`→`FuncDecl` subtree so a typedef and a matching
-`_ExpectAndReturn` variant *could* be generated. Fix: detect the fn-ptr case, synthesize a
-typedef named `CMOCK_<func>_<param>_CALLBACK`, and use it as the expected argument type
-with `UNITY_TEST_ASSERT_EQUAL_PTR` as a fallback comparator.
+~~**Variadic and function-pointer params — functions skipped entirely**~~
+**FIXED in v0.0.2** — `_extract_functions` no longer skips these:
+
+- **Variadic functions** (`int log_printf(const char *fmt, ...)`): mocked. The fixed
+  prefix params are captured and asserted; the mock's signature keeps the trailing `...`
+  but the variadic tail is ignored (a `va_list` can't be inspected after the call), so
+  only the fixed params get `_Expect`/`_ExpectAndReturn`. `FunctionDecl.is_variadic` carries
+  the flag; `_decl_params` appends `...`.
+- **Function-pointer params** (`void register_cb(void (*cb)(int))`): mocked. `_build_param`
+  detects the `PtrDecl`→`FuncDecl` shape, renders the typed declarator via
+  `gen.visit(param)` (name embedded), stores the pointer as `void *` in the CALL_INSTANCE,
+  and asserts identity with `UNITY_TEST_ASSERT_EQUAL_PTR`. `Param.is_fnptr` carries the flag.
+
+A runnable demo lives in `examples/mock_features` (TestVariadic / TestFnptr / TestApp).
+
+**Incomplete (opaque) struct-by-value params — still skipped (by design)**
+`void use_opaque(struct Opaque o)` where `struct Opaque` is forward-declared only has an
+unknown `sizeof`, so it cannot be stored or byte-compared. `_collect_struct_info` +
+`_is_opaque_struct_param` detect this (including typedef chains and anonymous typedef
+structs) and skip just that function with a warning. Complete structs (inline definition or
+typedef to a complete one) ARE mocked via `UNITY_TEST_ASSERT_EQUAL_MEMORY`. A pointer to an
+opaque struct is fine — it is mocked, and is correctly excluded from `_ReturnThruPtr_*`
+(the `_thru` copy field would need the unknown pointee size).
 
 ~~**Unknown scalar types silently compare as INT**~~
 ~~`_treat_as` returns `"INT"` and emits a `UserWarning` for any typedef not in `TREAT_AS`.
@@ -538,7 +554,7 @@ enable that define and parse the extended output format `file:line:name:PASS (Xm
 |----------|--------|-------|
 | **Breaks correctness** | `forge_mock.c` | Pointer args not deep-copied in Expect records |
 | **Breaks correctness** | `toolchains.py` | `get_toolchain` returns shared mutable instance |
-| **Breaks feature** | `mockgen.py` | Variadic functions produce no mock |
+| ~~**Breaks feature**~~ **FIXED v0.0.2** | `mockgen.py` | ~~Variadic functions produce no mock~~ Variadic + fnptr params now mocked; only opaque struct-by-value skipped |
 | ~~**Degrades silently**~~ **FIXED rc.1** | `mockgen.py` | ~~Unknown types compared as INT (may pass when it should fail)~~ Now uses MEMORY (byte-compare) |
 | **Degrades silently** | `mockgen.py` | `ReturnThruPtr` copies only first element |
 | **Degrades silently** | `compiler.py` | Stale binary after mock header regeneration |

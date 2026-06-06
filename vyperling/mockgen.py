@@ -16,10 +16,15 @@ full queue-based CMock-style API per mocked function:
 Failures route through Unity (UNITY_TEST_FAIL). The shared runtime lives in the vendored
 ``vyperling/c/forge_mock.{c,h}`` and is compiled into every test binary.
 
-v0.1 limitations (functions affected are skipped with a warning, not mocked):
-  - variadic functions (``...``)
-  - function-pointer parameters
-  - incomplete struct-by-value parameters
+Supported (previously v0.1 limitations, now implemented):
+  - variadic functions (``...``): fixed params are captured and asserted; the variadic
+    tail is ignored at mock time (va_list cannot be inspected after the fact).
+  - function-pointer parameters: stored as ``void *`` in CALL_INSTANCE; asserted via
+    UNITY_TEST_ASSERT_EQUAL_PTR (pointer-identity compare — correct for callback testing).
+  - incomplete struct-by-value parameters: functions with genuinely opaque struct params
+    (forward-declared only, sizeof unknown) are skipped with a warning. Complete structs
+    (inline definition or typedef to a complete definition) are handled via MEMORY compare.
+
 ReturnThruPtr copies a single element. Pointer args are compared by identity except
 ``const char *`` (string compare). float/double asserts assume UNITY_INCLUDE_FLOAT/_DOUBLE.
 """
@@ -79,6 +84,7 @@ class Param:
     return_thru: bool = False
     pointee_type: str = ""
     storage_type: str = ""
+    is_fnptr: bool = False
 
 
 @dataclass
@@ -90,6 +96,7 @@ class FunctionDecl:
     skipped: bool = False
     skip_reason: str | None = None
     return_thru_params: list[Param] = field(default_factory=list)
+    is_variadic: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -169,22 +176,138 @@ def _is_fnptr_param(param) -> bool:
     )
 
 
-def _build_param(param, index: int, gen: c_generator.CGenerator) -> Param:
+def _collect_struct_info(ast) -> tuple[dict[str, bool], dict[str, c_ast.Node]]:
+    """Single pre-pass over the TU. Returns:
+    - struct_defs: struct tag name -> is_complete (True when member list is visible)
+    - typedef_map: typedef name -> its aliased type node
+    """
+    struct_defs: dict[str, bool] = {}
+    typedef_map: dict[str, c_ast.Node] = {}
+    for ext in ast.ext:
+        if isinstance(ext, c_ast.Decl) and isinstance(ext.type, c_ast.Struct):
+            s = ext.type
+            if s.name:
+                is_complete = s.decls is not None
+                if is_complete or s.name not in struct_defs:
+                    struct_defs[s.name] = is_complete
+        elif isinstance(ext, c_ast.Typedef):
+            t = ext.type
+            if isinstance(t, c_ast.TypeDecl):
+                typedef_map[ext.name] = t.type
+                # Also register the embedded struct definition (e.g. typedef struct _Foo {...} Foo_t)
+                if isinstance(t.type, c_ast.Struct) and t.type.name:
+                    s = t.type
+                    is_complete = s.decls is not None
+                    if is_complete or s.name not in struct_defs:
+                        struct_defs[s.name] = is_complete
+    return struct_defs, typedef_map
+
+
+def _is_opaque_struct_param(
+    param, struct_defs: dict[str, bool], typedef_map: dict[str, c_ast.Node]
+) -> bool:
+    """True iff param is passed by value and resolves to an incomplete struct."""
+    t = param.type
+    if not isinstance(t, c_ast.TypeDecl):
+        return False  # pointer/array — not by-value
+    inner = t.type
+
+    if isinstance(inner, c_ast.Struct):
+        if inner.decls is not None:
+            return False  # complete inline definition
+        return not struct_defs.get(inner.name, False)
+
+    if isinstance(inner, c_ast.IdentifierType):
+        type_name = inner.names[0]
+        node = typedef_map.get(type_name)
+        if node is None:
+            return False  # unknown typedef or primitive — let MEMORY handle it
+        # Walk nested TypeDecl wrappers to reach the Struct
+        while isinstance(node, c_ast.TypeDecl):
+            node = node.type
+        if isinstance(node, c_ast.Struct):
+            # Anonymous struct typedef (`typedef struct { ... } Size;`) carries its
+            # own member list — complete, even though it has no tag name.
+            if node.decls is not None:
+                return False
+            return not struct_defs.get(node.name, False)
+
+    return False
+
+
+def _pointee_is_incomplete_struct(
+    pointee, struct_defs: dict[str, bool], typedef_map: dict[str, c_ast.Node]
+) -> bool:
+    """True if a pointer's pointee resolves to an incomplete struct. ReturnThruPtr
+    would emit a `<pointee> _thru` field whose sizeof is unknown — must be excluded."""
+    if not isinstance(pointee, c_ast.TypeDecl):
+        return False
+    inner = pointee.type
+    if isinstance(inner, c_ast.Struct):
+        if inner.decls is not None:
+            return False
+        return not struct_defs.get(inner.name, False)
+    if isinstance(inner, c_ast.IdentifierType):
+        node = typedef_map.get(inner.names[0])
+        while isinstance(node, c_ast.TypeDecl):
+            node = node.type
+        if isinstance(node, c_ast.Struct):
+            if node.decls is not None:
+                return False
+            return not struct_defs.get(node.name, False)
+    return False
+
+
+def _build_param(
+    param,
+    index: int,
+    gen: c_generator.CGenerator,
+    struct_defs: dict[str, bool] | None = None,
+    typedef_map: dict[str, c_ast.Node] | None = None,
+) -> Param:
     name = param.name or f"cmock_arg{index}"
+    struct_defs = struct_defs or {}
+    typedef_map = typedef_map or {}
+
+    if _is_fnptr_param(param):
+        # visit(param) includes the name inside the declarator: "int (*cb)(int)"
+        # visit(param.type) gives "int (*)(int)" — name missing, invalid in signatures
+        type_str = gen.visit(param)  # e.g. "int (*cb)(int)"
+        return Param(
+            name=name,
+            type=type_str,
+            assert_suffix="PTR",
+            is_ptr=True,
+            is_const_ptr=False,
+            return_thru=False,
+            pointee_type="",
+            storage_type="void *",  # avoids unnamed fnptr field type problem
+            is_fnptr=True,
+        )
+
     type_str = gen.visit(param.type)
     is_ptr = isinstance(param.type, c_ast.PtrDecl)
     is_const_ptr = False
     pointee_type = ""
+    pointee_incomplete = False
     if is_ptr:
         pointee = param.type.type
         is_const_ptr = "const" in getattr(pointee, "quals", [])
         pointee_type = gen.visit(pointee)
+        pointee_incomplete = _pointee_is_incomplete_struct(
+            pointee, struct_defs, typedef_map
+        )
     assert_suffix = _treat_as(type_str)
     # ReturnThruPtr only for writable (non-const) pointers that aren't strings,
-    # and never for `void *` (sizeof(void) is illegal — can't size the copy).
+    # never for `void *` (sizeof(void) is illegal), and never for a pointer to an
+    # incomplete struct (sizeof unknown — can't size the `_thru` copy field).
     pointee_is_void = is_ptr and _strip_quals(pointee_type) == "void"
     return_thru = (
-        is_ptr and not is_const_ptr and assert_suffix != "STRING" and not pointee_is_void
+        is_ptr
+        and not is_const_ptr
+        and assert_suffix != "STRING"
+        and not pointee_is_void
+        and not pointee_incomplete
     )
     return Param(
         name=name,
@@ -202,6 +325,7 @@ def _extract_functions(ast, fake_dir: str, target: Path | None = None) -> list[F
     gen = c_generator.CGenerator()
     out: list[FunctionDecl] = []
     target_resolved = target.resolve() if target is not None else None
+    struct_defs, typedef_map = _collect_struct_info(ast)
 
     for ext in ast.ext:
         if not isinstance(ext, c_ast.Decl):
@@ -235,15 +359,20 @@ def _extract_functions(ast, fake_dir: str, target: Path | None = None) -> list[F
             raw_params = []
 
         skip_reason: str | None = None
+        is_variadic = False
         params: list[Param] = []
         for i, p in enumerate(raw_params):
             if isinstance(p, c_ast.EllipsisParam):
-                skip_reason = "variadic functions are not supported"
+                is_variadic = True
+                break  # EllipsisParam is always last; fixed params already collected
+            if _is_opaque_struct_param(p, struct_defs, typedef_map):
+                pname = p.name or f"arg{i}"
+                skip_reason = (
+                    f"parameter '{pname}' is an incomplete struct by value "
+                    f"(forward-declared only); cannot determine sizeof"
+                )
                 break
-            if _is_fnptr_param(p):
-                skip_reason = "function-pointer parameters are not supported"
-                break
-            params.append(_build_param(p, i, gen))
+            params.append(_build_param(p, i, gen, struct_defs, typedef_map))
 
         if skip_reason is not None:
             out.append(
@@ -265,6 +394,7 @@ def _extract_functions(ast, fake_dir: str, target: Path | None = None) -> list[F
                 params=params,
                 is_void=is_void,
                 return_thru_params=[p for p in params if p.return_thru],
+                is_variadic=is_variadic,
             )
         )
 
@@ -295,20 +425,30 @@ def _ptr_to_pointee(type_str: str) -> str:
     return type_str[:idx].strip() if idx != -1 else type_str
 
 
+def _param_decl(p: Param) -> str:
+    """Render a single param as it would appear in a C function signature."""
+    if p.is_fnptr:
+        return p.type  # already includes name: "int (*cb)(int)"
+    return f"{p.type} {p.name}"
+
+
 def _decl_params(f: FunctionDecl) -> str:
-    if not f.params:
+    if not f.params and not f.is_variadic:
         return "void"
-    return ", ".join(f"{p.type} {p.name}" for p in f.params)
+    parts = [_param_decl(p) for p in f.params]
+    if f.is_variadic:
+        parts.append("...")
+    return ", ".join(parts)
 
 
 def _expect_params(f: FunctionDecl) -> str:
     if not f.params:
         return "void"
-    return ", ".join(f"{p.type} {p.name}" for p in f.params)
+    return ", ".join(_param_decl(p) for p in f.params)
 
 
 def _expect_and_return_params(f: FunctionDecl) -> str:
-    parts = [f"{p.type} {p.name}" for p in f.params]
+    parts = [_param_decl(p) for p in f.params]
     parts.append(f"{f.return_type} cmock_to_return")
     return ", ".join(parts)
 
@@ -316,14 +456,19 @@ def _expect_and_return_params(f: FunctionDecl) -> str:
 def _callback_var_decl(f: FunctionDecl, var: str) -> str:
     """A full declaration of a function-pointer variable, e.g.
     'int (*uart_send_callback)(const char *, uint16_t, int)'."""
-    arg_types = [p.type for p in f.params]
+    # fnptr params use void* in callback sig to avoid embedding named fnptr types
+    arg_types = ["void *" if p.is_fnptr else p.type for p in f.params]
     arg_types.append("int")  # cmock_num_calls
+    if f.is_variadic:
+        arg_types.append("...")
     return f"{f.return_type} (*{var})({', '.join(arg_types)})"
 
 
 def _callback_sig(f: FunctionDecl) -> str:
-    arg_types = [p.type for p in f.params]
+    arg_types = ["void *" if p.is_fnptr else p.type for p in f.params]
     arg_types.append("int cmock_num_calls")
+    if f.is_variadic:
+        arg_types.append("...")
     return f"{f.return_type} (*cb)({', '.join(arg_types)})"
 
 
@@ -349,6 +494,7 @@ def _build_context(
                     "assert_suffix": p.assert_suffix,
                     "is_ptr": p.is_ptr,
                     "is_const_ptr": p.is_const_ptr,
+                    "is_fnptr": p.is_fnptr,
                 }
             )
         rtp_ctx = [
