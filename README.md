@@ -410,7 +410,6 @@ pytest --no-cov
   - `c/` — vendored C assets (Unity v2.6.1 + forge_mock)
   - `templates/` — Jinja2 templates for mocks and scaffolding
 - `tests/` — comprehensive Python test suite
-- `DEVELOPMENT_PLAN.md` — implementation checklist (all 17 steps ✅)
 
 ## Dependencies
 
@@ -447,7 +446,7 @@ Supported argument/function shapes:
 See [examples/mock_features](examples/mock_features) for a runnable project that
 exercises all three of the last group.
 
-## Known Limitations (v0.0.1)
+## Known Limitations (v0.0.2)
 
 - **Mock generation**: Incomplete (opaque) struct-by-value params are skipped with a
   warning — a forward-declared `struct Foo` has unknown `sizeof`, so it cannot be
@@ -457,15 +456,9 @@ exercises all three of the last group.
 
 ## Roadmap
 
-### v0.0.2
-- Add examples in repository root (FreeRTOS + STM32, etc.) with Ceedling/vyperling compatibility validation
-- Refine coverage report: summary percentage, threshold enforcement, terminal details
-- ✅ Lifted mockgen limitations: variadic functions, function-pointer params, and complete struct-by-value params are now mocked (see [examples/mock_features](examples/mock_features)); only opaque struct-by-value remains skipped
-
 ### v0.0.3
 - Full C preprocessor awareness in mockgen (`#ifdef`-guarded declarations)
 - CException support
-- Plugin API for custom reporters and emulator adapters
 
 ### v0.0.4
 - On-target execution via OpenOCD/pyOCD debug probe (`--target on-device`)

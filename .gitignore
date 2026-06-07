@@ -69,3 +69,5 @@ test-results.xml
 *.tmp
 *.temp
 *.bak
+*_PLAN.md
+*.claude
