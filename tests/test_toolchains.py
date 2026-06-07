@@ -12,7 +12,9 @@ BUILTIN_NAMES = [
     "mips32",
     "mips32el",
     "mips32r5",
+    "arm-linux",
     "arm-cortex-m4",
+    "arm-cortex-m4-pyocd",
     "arm-cortex-m0",
     "riscv32",
     "avr",
@@ -60,8 +62,8 @@ class TestToolchainDataclass:
 # ---------------------------------------------------------------------------
 
 class TestBuiltinToolchains:
-    def test_has_exactly_eight_entries(self):
-        assert len(BUILTIN_TOOLCHAINS) == 8
+    def test_has_exactly_ten_entries(self):
+        assert len(BUILTIN_TOOLCHAINS) == 10
 
     @pytest.mark.parametrize("name", BUILTIN_NAMES)
     def test_all_expected_names_present(self, name):

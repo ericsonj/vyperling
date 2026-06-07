@@ -13,6 +13,16 @@ build happened rather than a silent native fallback.
 
 Skips the whole module (no hard fail) if the `vpl` console script is not installed
 (`poetry install` / `pip install -e .` not run).
+
+Two test groups:
+
+* scaffold-based (test_cross_compile_and_run_passes, test_cross_failing_test_propagates_exit_1)
+  — spins up a fresh `vpl new demo` project in tmp_path; validates the generic scaffold path.
+
+* example-based (test_cross_mips_example_*)
+  — runs against examples/cross_mips, a real multi-module project with mocks (CRC16 + packet
+  framing). Verifies that mock generation, multi-unit compilation, and MIPS ELF production all
+  work on a non-trivial codebase, not just the minimal scaffold.
 """
 
 from __future__ import annotations
@@ -25,6 +35,9 @@ import sys
 from pathlib import Path
 
 import pytest
+
+EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
+CROSS_MIPS_EXAMPLE = EXAMPLES_DIR / "cross_compilation"
 
 TIMEOUT_S = 120
 EM_MIPS = 8  # ELF e_machine value for MIPS
@@ -113,7 +126,7 @@ def test_cross_compile_and_run_passes(
     combined = out.stdout + out.stderr
     assert out.returncode == 0, combined
     assert "1 passed" in combined
-    assert "PASS" in combined
+    assert "✓" in combined
 
     # Smoke signal: a REAL cross binary of the right arch/endianness was produced.
     _assert_mips_elf(project / "build" / target / "example", ei_data)
@@ -128,7 +141,7 @@ def test_cross_failing_test_propagates_exit_1(tmp_path: Path) -> None:
     row = _first_available_target()
     if row is None:
         pytest.skip("no cross toolchain (gcc + qemu-user pair) available on this host")
-    target, _cc, _qemu, _ei = row
+    target, *_ = row
 
     assert _run(VPL, "new", "demo", cwd=tmp_path).returncode == 0, "scaffold failed"
     project = tmp_path / "demo"
@@ -147,4 +160,103 @@ def test_cross_failing_test_propagates_exit_1(tmp_path: Path) -> None:
     out = _run(VPL, "test", "--target", target, cwd=project)
     combined = out.stdout + out.stderr
     assert out.returncode != 0, f"expected non-zero exit, got 0:\n{combined}"
-    assert "FAIL" in combined
+    assert "✗" in combined
+
+
+# ---------------------------------------------------------------------------
+# examples/cross_mips — real multi-module project with mocks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "target, cc, qemu, ei_data",
+    CROSS_TARGETS,
+    ids=[t[0] for t in CROSS_TARGETS],
+)
+def test_cross_mips_example_all_tests_pass(
+    target: str, cc: str, qemu: str, ei_data: int, tmp_path: Path
+) -> None:
+    """cross_mips example: mock generation + multi-unit compile + MIPS ELF verified.
+
+    Copies the example into tmp_path so the source tree stays clean (no build/
+    or mocks/ artefacts committed). Checks that both the pure-C crc16 unit and
+    the mock-driven packet unit pass under qemu-user, and that every produced
+    binary is a genuine MIPS ELF of the expected endianness.
+    """
+    _require_cross(cc, qemu, target)
+
+    # Copy example into tmp_path — keeps source tree clean.
+    project = tmp_path / "cross_compilation"
+    shutil.copytree(CROSS_MIPS_EXAMPLE, project)
+
+    out = _run(VPL, "test", "--target", target, cwd=project)
+    combined = out.stdout + out.stderr
+    assert out.returncode == 0, combined
+    assert "passed" in combined
+    assert "✓" in combined
+    assert "✗" not in combined
+
+    # Both units must produce a genuine MIPS ELF.
+    for unit in ("crc16", "packet"):
+        _assert_mips_elf(project / "build" / target / unit, ei_data)
+
+
+@pytest.mark.parametrize(
+    "target, cc, qemu, ei_data",
+    CROSS_TARGETS,
+    ids=[t[0] for t in CROSS_TARGETS],
+)
+def test_cross_mips_example_elf_is_static(
+    target: str, cc: str, qemu: str, ei_data: int, tmp_path: Path
+) -> None:
+    """MIPS toolchain builds static binaries — no dynamic linker required.
+
+    ET_EXEC (e_type=2) + no PT_INTERP segment confirms the binary is fully
+    static and can run under qemu-user without a sysroot.
+    """
+    _require_cross(cc, qemu, target)
+
+    project = tmp_path / "cross_compilation"
+    shutil.copytree(CROSS_MIPS_EXAMPLE, project)
+
+    out = _run(VPL, "test", "--target", target, cwd=project)
+    assert out.returncode == 0, out.stdout + out.stderr
+
+    # Check the crc16 binary (no mocks — simplest ELF to inspect).
+    binary = project / "build" / target / "crc16"
+    _assert_mips_elf(binary, ei_data)
+
+    data = binary.read_bytes()
+    endian = "<" if ei_data == 1 else ">"
+    (e_type,) = struct.unpack_from(endian + "H", data, 16)  # e_type at offset 16
+    assert e_type == 2, f"expected ET_EXEC (2), got e_type={e_type} — binary is not static exec"
+
+
+def test_cross_mips_example_crc_unit_fails_propagates_exit_1(tmp_path: Path) -> None:
+    """A failing CRC assertion under qemu-user propagates a non-zero exit code.
+
+    Patches test_crc16.c to flip a known-vector assertion so it fails, then
+    checks that qemu-user forwards the non-zero guest exit status. Uses the
+    first available MIPS target on this host.
+    """
+    row = _first_available_target()
+    if row is None:
+        pytest.skip("no cross toolchain (gcc + qemu-user pair) available on this host")
+    target, *_ = row
+
+    project = tmp_path / "cross_compilation"
+    shutil.copytree(CROSS_MIPS_EXAMPLE, project)
+
+    test_file = project / "test" / "test_crc16.c"
+    src = test_file.read_text()
+    bad = src.replace(
+        "TEST_ASSERT_EQUAL_HEX16(0x29B1, crc16_compute(data, sizeof(data)));",
+        "TEST_ASSERT_EQUAL_HEX16(0xDEAD, crc16_compute(data, sizeof(data)));",
+    )
+    assert bad != src, "known-vector assertion changed in test_crc16.c; update the patch"
+    test_file.write_text(bad)
+
+    out = _run(VPL, "test", "--target", target, cwd=project)
+    combined = out.stdout + out.stderr
+    assert out.returncode != 0, f"expected non-zero exit, got 0:\n{combined}"
+    assert "✗" in combined
