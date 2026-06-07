@@ -1,0 +1,24 @@
+project:
+  name: freertos_example
+  src_dirs:
+    - src
+  include_dirs:
+    - src
+    - include/freertos
+  test_dir: test
+  mock_dir: mocks
+  build_dir: build
+
+# arm-none-eabi + qemu-arm user-mode does not work: bare-metal binaries
+# have no OS-managed stack segment so qemu-arm segfaults before main().
+# Unit tests with mocks always run on the native target.
+# Use arm-cortex-m4 for compile-only verification (vpl build --target arm-cortex-m4).
+targets:
+  default: native
+
+compiler:
+  defines:
+    - configSUPPORT_DYNAMIC_ALLOCATION=1
+    - configUSE_MUTEXES=1
+    - configUSE_TIMERS=1
+    - configUSE_EVENT_GROUPS=1
