@@ -29,6 +29,7 @@ from vyperling.unity import (
 )
 
 HAVE_GCC = shutil.which("gcc") is not None
+HAVE_ARM_GCC = shutil.which("arm-none-eabi-gcc") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -872,11 +873,13 @@ class TestToolchainCflagsPassthrough:
 # ---------------------------------------------------------------------------
 
 class TestCrossTargetWarning:
+    @pytest.mark.skipif(not HAVE_ARM_GCC, reason="arm-none-eabi-gcc not installed")
     def test_warns_for_non_native_target(self, tmp_path):
         h = _write(tmp_path / "src" / "plain.h", "int plain_fn(void);\n")
         with pytest.warns(UserWarning, match="generating mock for.*using target"):
             parse_header(h, _config(h.parent), _arm_cortex_m4())
 
+    @pytest.mark.skipif(not HAVE_GCC, reason="gcc not installed")
     def test_no_warning_for_native_target(self, tmp_path):
         h = _write(tmp_path / "src" / "plain.h", "int plain_fn(void);\n")
         with warnings.catch_warnings():

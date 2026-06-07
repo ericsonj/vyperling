@@ -57,8 +57,9 @@ def test_new_existing_dir_exits_1(runner: CliRunner) -> None:
 def test_version_exits_0_and_shows_version(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["--version"])
     assert result.exit_code == 0
-    assert "vyperling, version " in result.output
-    assert "0.0.1" not in result.output  # regression guard: stale hardcode
+    from vyperling import __version__
+
+    assert f"vyperling, version {__version__}" in result.output
 
 
 def test_version_shows_framework_versions(runner: CliRunner) -> None:
