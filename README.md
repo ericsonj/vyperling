@@ -22,6 +22,12 @@ A pip-installable replacement for [Ceedling](https://github.com/ThrowTheSwitch/C
 
 Perfect for firmware development, embedded systems testing, and hardware validation workflows.
 
+## Demo
+
+https://github.com/ericsonj/vyperling/raw/main/docs/demo.mp4
+
+> If the video does not play above, [download it here](docs/demo.mp4).
+
 ## Quick Start
 
 ### 1. Install
