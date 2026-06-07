@@ -1,0 +1,22 @@
+project:
+  name: guarded_api
+  src_dirs:
+    - src
+  include_dirs:
+    - src
+  test_dir: test
+  mock_dir: mocks
+  build_dir: build
+  # test_line_processor mocks parser but keeps validator real (a mock can't
+  # replicate validator_check's Throw). Link validator.c only into that unit.
+  extra_srcs:
+    line_processor:
+      - src/validator.c
+
+compiler:
+  defines:
+    - PARSER_DEBUG
+  cexception: true
+
+targets:
+  default: native

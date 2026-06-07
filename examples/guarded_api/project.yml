@@ -1,0 +1,114 @@
+# =========================================================================
+#   Ceedling - Test-Centered Build System for C
+#   ThrowTheSwitch.org
+#   Copyright (c) 2010-25 Mike Karlesky, Mark VanderVoord, & Greg Williams
+#   SPDX-License-Identifier: MIT
+# =========================================================================
+#
+# Ceedling config for guarded_api — lets the SAME test sources that vyperling
+# runs (vpl test) also run under the reference toolchain (ceedling test:all).
+# This is the cross-check: if both runners agree, vyperling's mockgen
+# (#ifdef-aware) and CException support match upstream CMock/CException
+# behavior exactly — not just "vyperling's own opinion of itself".
+#
+# No test file changes are needed to make that true — the two prefix
+# settings below (:test_file_prefix, :cmock :mock_prefix) just make
+# Ceedling's naming match what's already in test/*.c and forge.yml's
+# conventions (vyperling's snake_case "test_"/"mock_" defaults).
+
+---
+:project:
+  :which_ceedling: gem
+  :ceedling_version: '?'
+
+  :use_mocks: TRUE
+  :use_test_preprocessor: :all
+  :use_deep_preprocessor: :none
+  :use_backtrace: :none
+  :use_decorators: :auto
+
+  # Mirrors forge.yml's `compiler.cexception: true` — vendors, links, and
+  # includes CException for every test executable.
+  :use_exceptions: TRUE
+
+  :build_root: build
+  :test_file_prefix: test_
+  :default_tasks:
+    - test:all
+
+  :test_threads: 4
+  :compile_threads: 4
+
+  :release_build: FALSE
+
+:test_build:
+  :use_assembly: FALSE
+
+:release_build:
+  :output: guarded_api.out
+  :use_assembly: FALSE
+  :artifacts: []
+
+:plugins:
+  :load_paths: []
+  :enabled:
+    - report_tests_log_factory
+    - report_tests_pretty_stdout
+
+:report_tests_log_factory:
+  :reports:
+    - junit
+
+:paths:
+  :test:
+    - +:test/**
+  :source:
+    - src/**
+  :include:
+    - src/**
+  :support: []
+  :libraries: []
+
+:files:
+  :test: []
+  :source: []
+
+# Mirrors forge.yml's `compiler.defines: [PARSER_DEBUG]` — same #ifdef branch
+# is live for both runners, so mockgen and CMock resolve parser_dump_state()
+# identically (the thing this whole example exists to demonstrate).
+:defines:
+  :test:
+    '*':
+      - PARSER_DEBUG
+  :release: []
+  :use_test_definition: FALSE
+
+:flags: {}
+
+# Mirrors forge.yml's `mock_dir: mocks` / `mock_prefix: "mock_"` (vyperling
+# default) so the generated symbols (mock_parser_Init, mock_parser.h, ...)
+# are byte-for-byte the same names test/*.c already references.
+:cmock:
+  :mock_prefix: mock_
+  :when_no_prototypes: :warn
+  :enforce_strict_ordering: TRUE
+  :plugins:
+    - :ignore
+    - :callback
+    - :cexception
+  :treat_as:
+    uint8:    HEX8
+    uint16:   HEX16
+    uint32:   UINT32
+    int8:     INT8
+    bool:     UINT8
+
+:environment: []
+
+:libraries:
+  :placement: :end
+  :flag: "-l${1}"
+  :path_flag: "-L ${1}"
+  :system: []
+  :test: []
+  :release: []
