@@ -147,6 +147,15 @@ class TestLoadConfig:
         assert cfg["compiler"]["extra_cflags"] == ["-Wall"]
         assert cfg["compiler"]["defines"] == []  # default preserved
 
+    def test_cexception_defaults_false(self, tmp_path):
+        cfg = load_config(write_forge_yml(tmp_path, MINIMAL_YAML))
+        assert cfg["compiler"]["cexception"] is False
+
+    def test_cexception_enabled_via_config(self, tmp_path):
+        yaml_content = "project:\n  name: proj\ncompiler:\n  cexception: true\n"
+        cfg = load_config(write_forge_yml(tmp_path, yaml_content))
+        assert cfg["compiler"]["cexception"] is True
+
     def test_user_value_wins_over_default(self, tmp_path):
         yaml_content = "project:\n  name: proj\n  build_dir: dist\n"
         cfg = load_config(write_forge_yml(tmp_path, yaml_content))

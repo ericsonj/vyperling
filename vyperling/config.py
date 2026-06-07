@@ -28,6 +28,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "extra_cflags": [],
         "extra_ldflags": [],
         "defines": [],
+        "cexception": False,
     },
     "toolchains": {},
     "conventions": {
