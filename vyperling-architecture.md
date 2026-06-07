@@ -958,11 +958,6 @@ jobs:
 
 ## 17. Future roadmap
 
-### v0.0.3
-- Full C preprocessor awareness in mockgen (handle `#ifdef`-guarded declarations)
-- CException support
-- Plugin API for custom reporters and custom emulator adapters
-
 ### v0.0.4
 - On-target execution via OpenOCD/pyOCD debug probe (for `--target on-device`)
 - VS Code extension for inline pass/fail annotations

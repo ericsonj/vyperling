@@ -14,6 +14,7 @@ from vyperling.discoverer import TestUnit
 from vyperling.runnergen import generate_runner
 from vyperling.toolchains import Toolchain
 from vyperling.unity import (
+    get_cexception_c_path,
     get_forge_mock_c_path,
     get_unity_c_path,
     get_unity_include_dir,
@@ -99,6 +100,8 @@ def compile_unit(
             sources.append(p)
     sources.append(get_unity_c_path())
     sources.append(get_forge_mock_c_path())
+    if config["compiler"].get("cexception", False):
+        sources.append(get_cexception_c_path())
 
     # Generate the Unity runner (main + RUN_TEST list) for this test, the way
     # Ceedling auto-creates one. Without it the test TU has no main() to link.

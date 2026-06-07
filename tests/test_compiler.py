@@ -310,6 +310,17 @@ class TestCompileUnit:
         runner_name = f"{unit.name}_runner.c"
         assert any(runner_name in arg for arg in cmd)
 
+    def test_cexception_absent_by_default(self):
+        _, mock_run = self._run()
+        cmd = mock_run.call_args[0][0]
+        assert not any("CException.c" in arg for arg in cmd)
+
+    def test_cexception_linked_when_enabled(self):
+        self.config["compiler"]["cexception"] = True
+        _, mock_run = self._run()
+        cmd = mock_run.call_args[0][0]
+        assert any("CException.c" in arg for arg in cmd)
+
 
 # ---------------------------------------------------------------------------
 # TestCompileAll

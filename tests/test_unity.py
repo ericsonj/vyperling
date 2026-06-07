@@ -6,6 +6,8 @@ import pytest
 
 from vyperling.errors import ForgeError
 from vyperling.unity import (
+    get_cexception_c_path,
+    get_cexception_include_dir,
     get_forge_mock_c_path,
     get_unity_c_path,
     get_unity_include_dir,
@@ -53,6 +55,41 @@ class TestGetUnityCPath:
         assert get_unity_c_path().parent == get_unity_include_dir()
 
 
+class TestGetCExceptionIncludeDir:
+    def test_returns_path(self):
+        assert isinstance(get_cexception_include_dir(), Path)
+
+    def test_is_directory(self):
+        assert get_cexception_include_dir().is_dir()
+
+    def test_cexception_h_present(self):
+        assert (get_cexception_include_dir() / "CException.h").is_file()
+
+    def test_collocated_with_unity_include_dir(self):
+        assert get_cexception_include_dir() == get_unity_include_dir()
+
+
+class TestGetCExceptionCPath:
+    def test_returns_path(self):
+        assert isinstance(get_cexception_c_path(), Path)
+
+    def test_is_absolute(self):
+        assert get_cexception_c_path().is_absolute()
+
+    def test_is_file(self):
+        assert get_cexception_c_path().is_file()
+
+    def test_filename(self):
+        assert get_cexception_c_path().name == "CException.c"
+
+    def test_content_is_real_cexception(self):
+        content = get_cexception_c_path().read_text(encoding="utf-8")
+        assert "Throw" in content
+
+    def test_collocated_with_include_dir(self):
+        assert get_cexception_c_path().parent == get_cexception_include_dir()
+
+
 class TestBrokenInstall:
     """Error paths for incomplete/broken installs — vendored asset missing."""
 
@@ -72,3 +109,8 @@ class TestBrokenInstall:
         )
         with pytest.raises(ForgeError, match="include dir not found"):
             get_unity_include_dir()
+
+    def test_get_cexception_c_path_missing_raises(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("vyperling.unity._unity_dir", lambda: tmp_path)
+        with pytest.raises(ForgeError, match="CException.c not found"):
+            get_cexception_c_path()

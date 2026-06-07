@@ -5,6 +5,27 @@ import click
 from . import __version__
 from .errors import ForgeError
 
+# Versions of the C test frameworks vyperling vendors or targets API-compat with.
+# Keep in sync manually when re-vendoring or changing API targets:
+#   Unity      -> vyperling/c/unity.h      (UNITY_VERSION_MAJOR/MINOR/BUILD)
+#   CException -> vyperling/c/CException.h (vendored v1.3.4)
+#   CMock      -> not vendored; mockgen.py reimplements this CMock API surface
+FRAMEWORK_VERSIONS = {
+    "Unity": "2.6.1",
+    "CMock": "2.6.0 (API-compatible, reimplemented)",
+    "CException": "1.3.4",
+}
+
+
+def _print_version(ctx, param, value) -> None:
+    if not value or ctx.resilient_parsing:
+        return
+    click.echo(f"vyperling, version {__version__}")
+    width = max(len(name) for name in FRAMEWORK_VERSIONS)
+    for name, ver in FRAMEWORK_VERSIONS.items():
+        click.echo(f"  {name:<{width}} {ver}")
+    ctx.exit()
+
 
 def _src_headers(config: dict) -> list[Path]:
     """Every *.h across the configured source dirs (the `mock --all` set)."""
@@ -46,7 +67,14 @@ def _mock_headers_for_units(config: dict, units) -> list[Path]:
 
 
 @click.group()
-@click.version_option(version=__version__, prog_name="vyperling")
+@click.option(
+    "--version",
+    is_flag=True,
+    expose_value=False,
+    is_eager=True,
+    callback=_print_version,
+    help="Show the version and exit.",
+)
 def cli() -> None:
     """vyperling — Embedded C test runner with cross-compilation support.
 

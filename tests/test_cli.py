@@ -51,6 +51,56 @@ def test_new_existing_dir_exits_1(runner: CliRunner) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# --version
+# --------------------------------------------------------------------------- #
+
+def test_version_exits_0_and_shows_version(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["--version"])
+    assert result.exit_code == 0
+    from vyperling import __version__
+
+    assert f"vyperling, version {__version__}" in result.output
+
+
+def test_version_shows_framework_versions(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["--version"])
+    assert "Unity" in result.output
+    assert "CMock" in result.output
+    assert "CException" in result.output
+    unity_line = next(line for line in result.output.splitlines() if "Unity" in line)
+    assert "2.6.1" in unity_line
+
+
+def test_version_matches_installed_metadata(runner: CliRunner) -> None:
+    from importlib.metadata import PackageNotFoundError, version as pkg_version
+
+    from vyperling import __version__
+
+    try:
+        assert __version__ == pkg_version("vyperling")
+    except PackageNotFoundError:
+        assert __version__ == "0.0.0+dev"
+
+
+def test_version_falls_back_when_metadata_missing(monkeypatch) -> None:
+    import importlib
+
+    import vyperling
+
+    def _raise(_name):
+        from importlib.metadata import PackageNotFoundError
+
+        raise PackageNotFoundError
+
+    monkeypatch.setattr("importlib.metadata.version", _raise)
+    importlib.reload(vyperling)
+    try:
+        assert vyperling.__version__ == "0.0.0+dev"
+    finally:
+        importlib.reload(vyperling)  # restore real value for subsequent tests
+
+
+# --------------------------------------------------------------------------- #
 # targets
 # --------------------------------------------------------------------------- #
 

@@ -155,7 +155,16 @@ vpl clean --target mips32  # Remove only target's build dir
 
 ### `vpl --version` / `vpl --help`
 
-Show version or full command help.
+Show version or full command help. `--version` also lists the Unity/CMock/CException
+versions vyperling targets API-compat with:
+
+```
+$ vpl --version
+vyperling, version 0.0.3
+  Unity      2.6.1
+  CMock      2.6.0 (API-compatible, reimplemented)
+  CException 1.3.4
+```
 
 ## Cross-Compilation Targets
 
@@ -243,6 +252,7 @@ compiler:
   defines:
     - DEBUG=1
     - VERSION=1.0.0
+  cexception: false   # set true to link vendored CException.c into every test binary
 
 toolchains:
   custom-mcu:
@@ -316,7 +326,10 @@ vyperling uses:
 
 - **Unity** — lightweight C assertion framework ([ThrowTheSwitch](https://github.com/ThrowTheSwitch/Unity))
 - **CMock** — automated mocking for C functions (auto-generated via `vpl mock`)
+- **CException** — exception-style error handling for C, vendored and opt-in via `compiler.cexception: true` ([ThrowTheSwitch](https://github.com/ThrowTheSwitch/CException))
 - **pycparser** — C header parser for mock generation
+
+`vpl --version` prints the vendored/API-compat versions of all three frameworks alongside vyperling's own — handy for bug reports and compat debugging.
 
 ### Assertion Macros
 
@@ -446,7 +459,15 @@ Supported argument/function shapes:
 See [examples/mock_features](examples/mock_features) for a runnable project that
 exercises all three of the last group.
 
-## Known Limitations (v0.0.2)
+`vpl mock` is also fully `#ifdef`-aware: it forwards `compiler.defines` (and,
+for cross targets, arch-defining toolchain `cflags` like `-march=`/`-mcpu=`/
+`-mthumb`) to the same `cc -E` preprocessor pass the real compile uses, so
+guarded declarations resolve identically in mocks and in the actual build —
+they can never silently drift apart. See
+[examples/guarded_api](examples/guarded_api) for a runnable project pairing
+this with CException-based error handling.
+
+## Known Limitations (v0.0.3)
 
 - **Mock generation**: Incomplete (opaque) struct-by-value params are skipped with a
   warning — a forward-declared `struct Foo` has unknown `sizeof`, so it cannot be
@@ -455,10 +476,6 @@ exercises all three of the last group.
 - **Emulation**: Timeout-based (default 30s per test binary)
 
 ## Roadmap
-
-### v0.0.3
-- Full C preprocessor awareness in mockgen (`#ifdef`-guarded declarations)
-- CException support
 
 ### v0.0.4
 - On-target execution via OpenOCD/pyOCD debug probe (`--target on-device`)

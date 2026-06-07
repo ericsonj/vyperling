@@ -13,6 +13,7 @@ import pytest
 from vyperling.errors import ForgeMockgenError
 from vyperling.mockgen import (
     FunctionDecl,
+    _cpp_args,
     _storage_type,
     _treat_as,
     generate_all,
@@ -28,6 +29,7 @@ from vyperling.unity import (
 )
 
 HAVE_GCC = shutil.which("gcc") is not None
+HAVE_ARM_GCC = shutil.which("arm-none-eabi-gcc") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -834,6 +836,55 @@ class TestDefinePassthrough:
                 h, _config(h.parent, defines=["PROJECT_DEF"]), _native()
             )
         assert any(f.name == "real_fn" for f in funcs)
+
+
+# ---------------------------------------------------------------------------
+# Layer 5d-2 — toolchain cflags forwarded to cpp (#ifdef arch-macro awareness)
+# ---------------------------------------------------------------------------
+
+def _arm_cortex_m4():
+    return get_toolchain("arm-cortex-m4", {"toolchains": {}})
+
+
+class TestToolchainCflagsPassthrough:
+    """`_cpp_args` forwards arch-macro-relevant toolchain cflags, not link-stage flags.
+
+    Pure unit tests on the args-builder — no cross-compiler required, run everywhere.
+    """
+
+    def test_arch_flags_forwarded(self, tmp_path):
+        args = _cpp_args(_config(tmp_path), _arm_cortex_m4())
+        assert "-mcpu=cortex-m4" in args
+        assert "-mthumb" in args
+
+    def test_link_stage_flags_excluded(self, tmp_path):
+        args = _cpp_args(_config(tmp_path), _arm_cortex_m4())
+        assert "--specs=rdimon.specs" not in args
+        assert "-lrdimon" not in args
+
+    def test_native_toolchain_contributes_no_extra_arch_flags(self, tmp_path):
+        native_args = _cpp_args(_config(tmp_path), _native())
+        assert "-mcpu=cortex-m4" not in native_args
+        assert "-mthumb" not in native_args
+
+
+# ---------------------------------------------------------------------------
+# Layer 5d-3 — advisory warning when mocking for a non-native target
+# ---------------------------------------------------------------------------
+
+class TestCrossTargetWarning:
+    @pytest.mark.skipif(not HAVE_ARM_GCC, reason="arm-none-eabi-gcc not installed")
+    def test_warns_for_non_native_target(self, tmp_path):
+        h = _write(tmp_path / "src" / "plain.h", "int plain_fn(void);\n")
+        with pytest.warns(UserWarning, match="generating mock for.*using target"):
+            parse_header(h, _config(h.parent), _arm_cortex_m4())
+
+    @pytest.mark.skipif(not HAVE_GCC, reason="gcc not installed")
+    def test_no_warning_for_native_target(self, tmp_path):
+        h = _write(tmp_path / "src" / "plain.h", "int plain_fn(void);\n")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            parse_header(h, _config(h.parent), _native())
 
 
 # ---------------------------------------------------------------------------

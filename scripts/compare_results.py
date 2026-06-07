@@ -30,16 +30,19 @@ class TestCase:
 
 
 def _normalize_suite(name: str) -> str:
-    """Normalize suite name: strip path prefix and leading 'Test' prefix.
+    """Normalize suite name: strip path prefix and leading test-file prefix.
 
-    Ceedling emits 'test/TestMain'; vyperling emits 'Main'.
-    Both normalize to 'Main'.
+    Ceedling emits 'test/TestMain' (PascalCase convention) or
+    'test/test_parser' (snake_case convention); vyperling emits 'Main' or
+    'parser' respectively. Both normalize to the same bare module name.
     """
     # strip path components (e.g. 'test/TestMain' -> 'TestMain')
     name = name.rsplit("/", 1)[-1]
-    # strip leading 'Test' prefix (Ceedling convention)
+    # strip leading 'Test' (PascalCase) or 'test_' (snake_case) prefix
     if name.startswith("Test"):
         name = name[4:]
+    elif name.startswith("test_"):
+        name = name[5:]
     return name
 
 

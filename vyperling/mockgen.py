@@ -103,7 +103,18 @@ class FunctionDecl:
 # Parsing
 # ---------------------------------------------------------------------------
 
-def _cpp_args(config: dict) -> list[str]:
+# Architecture/macro-affecting cflag prefixes safe to forward to `cc -E`.
+# Excludes link-stage-only flags (--specs=, -l*, -static) that are meaningless
+# (or break) the preprocess-only invocation — same filter discipline as the
+# -D/-U extra_cflags passthrough below.
+_ARCH_CFLAG_PREFIXES = (
+    "-D", "-U",
+    "-march=", "-mcpu=", "-mfpu=", "-mfloat-abi=",
+    "-mthumb", "-mno-thumb", "-mips32", "-mips64", "-EB", "-EL",
+)
+
+
+def _cpp_args(config: dict, toolchain: Toolchain) -> list[str]:
     args = [
         "-E",
         "-nostdinc",
@@ -117,6 +128,16 @@ def _cpp_args(config: dict) -> list[str]:
     ]
     for d in config["compiler"]["defines"]:
         args.append("-D" + str(d))
+    # Forward the toolchain's architecture-defining flags so #ifdef guards on
+    # arch macros (__arm__, __mips__, etc.) resolve the same way they would in
+    # a real compile for this target — without this, mocks generated for a
+    # cross target could include/omit functions differently than what actually
+    # compiles there. Skip link-stage-only flags (--specs=, -l*) that are
+    # meaningless (or break) at the -E preprocess-only stage.
+    for flag in toolchain.cflags:
+        flag = str(flag).strip()
+        if flag.startswith(_ARCH_CFLAG_PREFIXES):
+            args.append(flag)
     for d in get_include_dirs(config):
         args.append("-I" + str(d.resolve()))
     for d in get_src_dirs(config):
@@ -403,12 +424,21 @@ def _extract_functions(ast, fake_dir: str, target: Path | None = None) -> list[F
 
 def parse_header(header_path: Path, config: dict, toolchain: Toolchain) -> list[FunctionDecl]:
     """Parse a C header into FunctionDecls. Skipped funcs are returned with skipped=True."""
+    if toolchain.name != "native":
+        warnings.warn(
+            f"vyperling mockgen: generating mock for '{header_path.name}' using "
+            f"target '{toolchain.name}' — #ifdef-guarded declarations resolve "
+            f"using this target's macros and may differ from 'native' or other "
+            f"targets.",
+            UserWarning,
+            stacklevel=2,
+        )
     try:
         ast = pycparser.parse_file(
             str(header_path),
             use_cpp=True,
             cpp_path=toolchain.cc,
-            cpp_args=_cpp_args(config),
+            cpp_args=_cpp_args(config, toolchain),
         )
     except Exception as exc:  # noqa: BLE001 — pycparser/cpp raise many types
         raise ForgeMockgenError(f"Failed to parse {header_path}: {exc}") from exc

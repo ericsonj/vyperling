@@ -58,3 +58,23 @@ def get_forge_mock_c_path() -> Path:
 def get_forge_mock_include_dir() -> Path:
     """Absolute path to vyperling/c/ — same dir as Unity, holds forge_mock.h."""
     return get_unity_include_dir()
+
+
+def get_cexception_c_path() -> Path:
+    """Absolute path to vendored CException.c (v1.3.4).
+
+    Compiled into a test binary only when `compiler.cexception` is enabled.
+    Raises ForgeError for broken/incomplete installs.
+    """
+    path = _unity_dir() / "CException.c"
+    if not path.is_file():
+        raise ForgeError(
+            f"Vendored CException.c not found at {path}. "
+            "vyperling installation may be incomplete."
+        )
+    return path
+
+
+def get_cexception_include_dir() -> Path:
+    """Absolute path to vyperling/c/ — same dir as Unity, holds CException.h."""
+    return get_unity_include_dir()
