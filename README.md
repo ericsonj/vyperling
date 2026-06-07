@@ -456,10 +456,6 @@ exercises all three of the last group.
 
 ## Roadmap
 
-### v0.0.3
-- Full C preprocessor awareness in mockgen (`#ifdef`-guarded declarations)
-- CException support
-
 ### v0.0.4
 - On-target execution via OpenOCD/pyOCD debug probe (`--target on-device`)
 - VS Code extension for inline pass/fail annotations
