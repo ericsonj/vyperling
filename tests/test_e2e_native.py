@@ -64,7 +64,7 @@ def test_new_then_test_passes(tmp_path: Path) -> None:
     combined = out.stdout + out.stderr
     assert out.returncode == 0, combined
     assert "1 passed" in combined
-    assert "PASS" in combined
+    assert "✓" in combined
 
 
 def test_vyperling_twin_entrypoint(tmp_path: Path) -> None:

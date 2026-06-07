@@ -5,50 +5,116 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from rich import box
 from rich.console import Console
 from rich.table import Table
 
-from vyperling.runner import RunResult, TestCase
+from vyperling.coverage import CoverageSummary
+from vyperling.runner import RunResult
 
 _console = Console()
 
+# gcovr's own banding (defaults): high >= 90, medium >= 75, low < 75.
+# Matches the colors of the HTML report produced by the same run.
+_COV_HIGH = 90.0
+_COV_MEDIUM = 75.0
 
-def print_terminal_report(run_results: list[RunResult]) -> None:
+
+# Per-test status glyphs (markup-free; colored at print time).
+_PASS = "✓"
+_FAIL = "✗"
+_IGNORE = "~"
+
+# Minimum width for the test-name column so short names still align.
+_NAME_MIN = 32
+
+
+def _unit_failed(rr: RunResult) -> bool:
+    """True if a unit had a compile error, timed out, or has any failing test."""
+    if rr.binary is None or rr.timed_out:
+        return True
+    return any(not tc.passed and not tc.ignored for tc in rr.tests)
+
+
+def print_terminal_report(run_results: list[RunResult], compact: bool = False) -> None:
+    """Render a compact tree of per-unit test results.
+
+    Default view lists every test under a unit header; ``compact`` collapses each
+    unit to a single dot-leadered line. RunResult carries only a per-unit total
+    duration, so per-test ms is the unit total divided evenly across its tests.
+    """
+    if compact:
+        _print_compact(run_results)
+        return
+
     for i, rr in enumerate(run_results):
-        table = Table(
-            title=rr.unit.name,
-            box=box.SIMPLE_HEAD,
-            show_header=True,
-            header_style="bold",
-        )
-        table.add_column("Test", justify="left", no_wrap=False)
-        table.add_column("Result", justify="center", width=8)
-        table.add_column("ms", justify="right", width=6)
+        _console.print(f"[bold cyan]▸[/bold cyan] [bold]{rr.unit.name}[/bold]"
+                       f"  [dim]({len(rr.tests)} tests)[/dim]")
 
         if rr.binary is None:
-            table.add_row("[red]COMPILE ERROR[/red]", "", "")
+            _console.print(f"  [red]{_FAIL} COMPILE ERROR[/red]")
             if rr.stderr.strip():
-                table.add_row(f"[dim]{rr.stderr.strip()}[/dim]", "", "")
+                _console.print(f"    [dim]{rr.stderr.strip()}[/dim]")
         elif rr.timed_out:
-            table.add_row(rr.unit.name, "[yellow]TIMEOUT[/yellow]", str(rr.duration_ms))
+            _console.print(f"  [red]{_FAIL} TIMEOUT[/red]  "
+                           f"[dim]{rr.duration_ms}ms[/dim]")
         else:
             n = max(len(rr.tests), 1)
             per_ms = rr.duration_ms // n
+            width = max((len(tc.name) for tc in rr.tests), default=0)
+            width = max(width, _NAME_MIN)
             for tc in rr.tests:
                 if tc.passed:
-                    label = "[green]PASS[/green]"
+                    glyph, color = _PASS, "green"
                 elif tc.ignored:
-                    label = "[yellow]IGNORE[/yellow]"
+                    glyph, color = _IGNORE, "yellow"
                 else:
-                    label = "[red]FAIL[/red]"
-                table.add_row(tc.name, label, str(per_ms))
-                if not tc.passed and not tc.ignored and tc.message:
-                    table.add_row(f"[dim]  {tc.message}[/dim]", "", "")
+                    glyph, color = _FAIL, "red"
+                _console.print(
+                    f"  [{color}]{glyph}[/{color}] {tc.name:<{width}}  "
+                    f"[dim]{per_ms}ms[/dim]"
+                )
+                if not tc.passed and not tc.ignored:
+                    if tc.message:
+                        _console.print(f"    [dim]{tc.message}[/dim]")
+                    _console.print(f"    [dim cyan]{tc.file}:{tc.line}[/dim cyan]")
 
-        _console.print(table)
         if i < len(run_results) - 1:
             _console.print()
+
+
+def _compact_dots(rr: RunResult) -> str:
+    """One status char per test: `.` pass, `✗` fail (red), `~` ignore (yellow).
+
+    Compile-error / timeout units have no per-test data, so they render a single
+    red ✗ standing in for the whole unit.
+    """
+    if rr.binary is None or rr.timed_out:
+        return f"[red]{_FAIL}[/red]"
+    out = []
+    for tc in rr.tests:
+        if tc.passed:
+            out.append(".")
+        elif tc.ignored:
+            out.append(f"[yellow]{_IGNORE}[/yellow]")
+        else:
+            out.append(f"[red]{_FAIL}[/red]")
+    return "".join(out)
+
+
+def _print_compact(run_results: list[RunResult]) -> None:
+    """One line per unit: name, a status char per test, then total ms.
+
+    The dot row doubles as a count (one mark per test) and a status strip — any
+    ✗ in it flags a failing unit at a glance.
+    """
+    width = max((len(rr.unit.name) for rr in run_results), default=0)
+    for rr in run_results:
+        color = "red" if _unit_failed(rr) else "green"
+        pad = " " * (width - len(rr.unit.name))
+        _console.print(
+            f"[bold cyan]▸[/bold cyan] [{color}]{rr.unit.name}[/{color}]{pad}  "
+            f"{_compact_dots(rr)}  [dim]{rr.duration_ms}ms[/dim]"
+        )
 
 
 def print_summary(run_results: list[RunResult]) -> None:
@@ -74,12 +140,90 @@ def print_summary(run_results: list[RunResult]) -> None:
             else:
                 failed += 1
 
-    color = "green" if failed == 0 and timed_out == 0 else "red"
+    clean = failed == 0 and timed_out == 0
+    color = "green" if clean else "red"
+    glyph = "✔" if clean else "✘"
     line = (
-        f"  {passed} passed, {failed} failed, {ignored} ignored, "
+        f"{glyph} {passed} passed  {failed} failed · {ignored} ignored · "
         f"{timed_out} timed out — {total_ms / 1000:.1f}s total"
     )
-    _console.print(f"[{color}]{line}[/{color}]")
+    _console.print(f"\n[{color}]{line}[/{color}]")
+
+
+def _cov_color(pct: float) -> str:
+    """Map a coverage percentage to a rich color using gcovr's banding."""
+    if pct >= _COV_HIGH:
+        return "green"
+    if pct >= _COV_MEDIUM:
+        return "yellow"
+    return "red"
+
+
+def _cov_cell(pct: float) -> str:
+    return f"[{_cov_color(pct)}]{pct:.1f}%[/{_cov_color(pct)}]"
+
+
+def _cov_bar(pct: float, width: int = 10) -> str:
+    """A `width`-cell filled/empty bar (`█`/`░`) colored by gcovr banding."""
+    filled = round(pct / 100 * width)
+    filled = max(0, min(width, filled))
+    bar = "█" * filled + "░" * (width - filled)
+    color = _cov_color(pct)
+    return f"[{color}]{bar}[/{color}]"
+
+
+def print_coverage_report(summary: CoverageSummary) -> None:
+    """Render a rich per-file coverage table (worst-first) plus a TOTAL row,
+    followed by a callout of files below the medium (75%) line threshold."""
+    _console.print()  # separate from the test summary above
+    table = Table(
+        title="Coverage",
+        title_justify="left",
+        title_style="bold",
+        box=None,
+        show_header=True,
+        header_style="bold",
+        pad_edge=True,
+    )
+    table.add_column("File", justify="left", no_wrap=False)
+    table.add_column("", justify="left", width=10)  # average-coverage bar
+    table.add_column("Lines", justify="right", width=8)
+    table.add_column("Functions", justify="right", width=10)
+    table.add_column("Branches", justify="right", width=9)
+
+    for f in sorted(summary.files, key=lambda c: c.line_percent):
+        avg = (f.line_percent + f.function_percent + f.branch_percent) / 3
+        table.add_row(
+            f.filename,
+            _cov_bar(avg),
+            _cov_cell(f.line_percent),
+            _cov_cell(f.function_percent),
+            _cov_cell(f.branch_percent),
+        )
+
+    table.add_row("", "", "", "", "")  # blank spacer above TOTAL (box=None)
+    total_avg = (
+        summary.line_percent + summary.function_percent + summary.branch_percent
+    ) / 3
+    table.add_row(
+        "[bold]TOTAL[/bold]",
+        _cov_bar(total_avg),
+        f"[bold]{_cov_cell(summary.line_percent)}[/bold]",
+        f"[bold]{_cov_cell(summary.function_percent)}[/bold]",
+        f"[bold]{_cov_cell(summary.branch_percent)}[/bold]",
+    )
+
+    _console.print(table)
+
+    low = [f for f in summary.files if f.line_percent < _COV_MEDIUM]
+    if low:
+        listed = ", ".join(
+            f"{f.filename} ({f.line_percent:.1f}%)"
+            for f in sorted(low, key=lambda c: c.line_percent)
+        )
+        _console.print(
+            f"[red]Below {_COV_MEDIUM:.0f}% line coverage:[/red] {listed}"
+        )
 
 
 def write_junit_xml(run_results: list[RunResult], output_path: Path) -> None:

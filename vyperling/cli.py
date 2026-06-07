@@ -84,8 +84,11 @@ def new(name: str) -> None:
               help="Print every compiler command.")
 @click.option("--no-mock", is_flag=True, default=False,
               help="Skip automatic mock generation.")
+@click.option("--compact", is_flag=True, default=False,
+              help="One line per test unit instead of per-test detail.")
 @click.pass_context
-def test(ctx, target, filter_pattern, jobs, coverage, output, verbose, no_mock) -> None:
+def test(ctx, target, filter_pattern, jobs, coverage, output, verbose, no_mock,
+         compact) -> None:
     """Discover, compile, run, and report C unit tests."""
     from .compiler import compile_all
     from .config import find_config, get_build_dir, get_mock_dir, load_config
@@ -93,7 +96,12 @@ def test(ctx, target, filter_pattern, jobs, coverage, output, verbose, no_mock) 
     from .discoverer import discover
     from .errors import ForgeConfigError, ForgeCoverageError, ForgeToolchainError
     from .mockgen import generate_all
-    from .reporter import print_summary, print_terminal_report, write_junit_xml
+    from .reporter import (
+        print_coverage_report,
+        print_summary,
+        print_terminal_report,
+        write_junit_xml,
+    )
     from .runner import run_all
     from .toolchains import get_toolchain
 
@@ -123,7 +131,7 @@ def test(ctx, target, filter_pattern, jobs, coverage, output, verbose, no_mock) 
             units, toolchain, config, jobs=jobs, verbose=verbose, coverage=cov_native
         )
         runs = run_all(results, toolchain)
-        print_terminal_report(runs)
+        print_terminal_report(runs, compact=compact)
         print_summary(runs)
 
         if output == "junit":
@@ -135,7 +143,8 @@ def test(ctx, target, filter_pattern, jobs, coverage, output, verbose, no_mock) 
         if cov_native:
             try:
                 build_dir = get_build_dir(config, "native")
-                index = generate_coverage(config, build_dir, build_dir)
+                index, summary = generate_coverage(config, build_dir, build_dir)
+                print_coverage_report(summary)
                 click.echo(f"Coverage report: {index}")
             except ForgeCoverageError as exc:
                 click.echo(f"Warning: {exc}", err=True)
