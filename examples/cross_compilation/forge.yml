@@ -1,0 +1,22 @@
+project:
+  name: cross_mips
+  src_dirs:
+    - src
+  include_dirs:
+    - src
+  test_dir: test
+  mock_dir: mocks
+  build_dir: build
+
+# Run tests on mips32. Cross-build with --target mips32, mips32el, arm-cortex-m4, or arm-cortex-m0.
+# qemu-mips/qemu-mipsel execute the static MIPS ELF and forward stdout + exit
+# code so Unity output is identical to native. ARM targets use native compilation.
+#
+# Usage:
+#   vpl test                         # native (fast iteration)
+#   vpl test --target mips32         # MIPS big-endian via qemu-mips
+#   vpl test --target mips32el       # MIPS little-endian via qemu-mipsel
+#   vpl test --target arm-cortex-m4  # ARM Cortex-M4
+#   vpl test --target arm-cortex-m0  # ARM Cortex-M0
+targets:
+  default: mips32

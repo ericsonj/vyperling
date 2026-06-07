@@ -422,20 +422,55 @@ pytest --no-cov
 - `pytest>=7.0` — testing
 - `pytest-cov>=4.0` — coverage measurement
 
+## Mock Generation Capabilities
+
+`vpl mock` (pycparser + Jinja2) emits the full CMock-style API per function:
+`_Expect` / `_ExpectAndReturn`, `_ExpectAnyArgs`, `_Ignore` / `_IgnoreAndReturn`,
+`_IgnoreArg_<param>`, `_ReturnThruPtr_<param>`, `_AddCallback` / `_Stub`, and
+`mock_<module>_Init` / `_Verify` / `_Destroy`.
+
+Supported argument/function shapes:
+
+| Shape | Example | Handling |
+|-------|---------|----------|
+| Scalars / typedefs | `uint16_t len` | Mapped to the matching `UNITY_TEST_ASSERT_EQUAL_*` |
+| `const char *` | `const char *msg` | String compare |
+| Other pointers | `uint8_t *buf` | Pointer-identity compare; writable ptrs get `_ReturnThruPtr_*` |
+| **Variadic** | `int log_printf(const char *fmt, ...)` | Fixed params asserted; variadic tail ignored |
+| **Function-pointer params** | `void register_cb(void (*cb)(int))` | Stored as `void *`, asserted by identity (PTR) |
+| **Struct-by-value (complete)** | `int classify(struct Point p)` | Byte-compared via `UNITY_TEST_ASSERT_EQUAL_MEMORY` |
+
+See [examples/mock_features](examples/mock_features) for a runnable project that
+exercises all three of the last group.
+
 ## Known Limitations (v0.0.1)
 
-- **Mock generation**: Skips variadic functions, function-pointer params, and incomplete struct-by-value params (warns during generation)
+- **Mock generation**: Incomplete (opaque) struct-by-value params are skipped with a
+  warning — a forward-declared `struct Foo` has unknown `sizeof`, so it cannot be
+  stored or compared. A pointer to the same struct mocks fine.
 - **Coverage**: Native target only; requires GCC with `-fprofile-arcs -ftest-coverage` support
 - **Emulation**: Timeout-based (default 30s per test binary)
 
 ## Roadmap
 
-| Phase | Items |
-|-------|-------|
-| v0.1 | ✅ Core pipeline (discover → mock → compile → run → report) |
-| v0.2 | 📋 Enhanced mock generation (variadic support, callbacks) |
-| v0.3 | 📋 CI/CD integration templates (GitHub Actions, GitLab CI) |
-| v0.4 | 📋 IDE integration (VS Code extension) |
+### v0.0.2
+- Add examples in repository root (FreeRTOS + STM32, etc.) with Ceedling/vyperling compatibility validation
+- Refine coverage report: summary percentage, threshold enforcement, terminal details
+- ✅ Lifted mockgen limitations: variadic functions, function-pointer params, and complete struct-by-value params are now mocked (see [examples/mock_features](examples/mock_features)); only opaque struct-by-value remains skipped
+
+### v0.0.3
+- Full C preprocessor awareness in mockgen (`#ifdef`-guarded declarations)
+- CException support
+- Plugin API for custom reporters and emulator adapters
+
+### v0.0.4
+- On-target execution via OpenOCD/pyOCD debug probe (`--target on-device`)
+- VS Code extension for inline pass/fail annotations
+
+### v0.0.N (Future)
+- `--watch` mode: rerun tests on file change
+- Argument capture in mocks (store last N calls, not just count)
+- `vyperling report` command to re-display results from previous run without recompiling
 
 ## Contributing
 

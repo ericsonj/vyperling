@@ -9,8 +9,10 @@ import pytest
 from vyperling.config import load_config
 from vyperling.errors import ForgeScaffoldError
 from vyperling.scaffold import create_project
+from vyperling.runnergen import generate_runner
 from vyperling.unity import (
     get_forge_mock_c_path,
+    get_forge_mock_include_dir,
     get_unity_c_path,
     get_unity_include_dir,
 )
@@ -48,12 +50,18 @@ def test_raises_if_exists(tmp_path: Path) -> None:
 @pytest.mark.skipif(shutil.which("gcc") is None, reason="gcc not available")
 def test_generated_test_compiles_and_passes(tmp_path: Path) -> None:
     root = create_project("demo", tmp_path)
+    test_file = root / "test" / "test_example.c"
+    runner_path = tmp_path / "test_example_runner.c"
+    generate_runner(test_file, runner_path, mocks=[])
+
     binary = tmp_path / "test_example"
     cmd = [
         "gcc",
         "-I", str(get_unity_include_dir()),
+        "-I", str(get_forge_mock_include_dir()),
         "-I", str(root / "src"),
-        str(root / "test" / "test_example.c"),
+        str(test_file),
+        str(runner_path),
         str(root / "src" / "example.c"),
         str(get_unity_c_path()),
         str(get_forge_mock_c_path()),

@@ -1,0 +1,80 @@
+# =========================================================================
+#   Ceedling - Test-Centered Build System for C
+#   ThrowTheSwitch.org
+#   Copyright (c) 2010-25 Mike Karlesky, Mark VanderVoord, & Greg Williams
+#   SPDX-License-Identifier: MIT
+# =========================================================================
+
+---
+:project:
+  :which_ceedling: gem
+  :ceedling_version: '?'
+
+  :use_mocks: TRUE
+  :use_test_preprocessor: :all
+  :use_deep_preprocessor: :none
+  :use_backtrace: :none
+  :use_decorators: :auto
+
+  :build_root: build
+  :test_file_prefix: Test
+  :default_tasks:
+    - test:all
+
+  :test_threads: 4
+  :compile_threads: 4
+
+  :release_build: FALSE
+
+:test_build:
+  :use_assembly: FALSE
+
+:release_build:
+  :output: mock_features.out
+  :use_assembly: FALSE
+  :artifacts: []
+
+:plugins:
+  :load_paths: []
+  :enabled:
+    - report_tests_log_factory
+    - report_tests_pretty_stdout
+
+:report_tests_log_factory:
+  :reports:
+    - junit
+
+:extension:
+  :executable: .out
+
+:paths:
+  :test:
+    - +:test/**
+  :source:
+    - src/**
+  :include:
+    - src/**
+  :libraries: []
+
+:files:
+  :test: []
+  :source: []
+
+:defines:
+  :test:
+    '*':
+      - TEST
+
+# CMock configuration — mirrors forge.yml conventions
+:cmock:
+  :mock_prefix: Mock
+  :when_no_prototypes: :warn
+  :enforce_strict_ordering: TRUE
+  :plugins:
+    - :ignore
+    - :ignore_arg
+    - :callback
+  :treat_as:
+    Opaque_t: PTR
+
+:environment: []

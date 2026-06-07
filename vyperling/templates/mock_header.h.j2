@@ -3,8 +3,8 @@
  * Mock for {{ header_name }} — CMock-compatible API.
  *
  * Usage (vyperling has no auto runner yet — call these yourself):
- *   void setUp(void)    { mock_{{ module }}_Init(); }
- *   void tearDown(void) { mock_{{ module }}_Verify(); mock_{{ module }}_Destroy(); }
+ *   void setUp(void)    { {{ mock_prefix }}{{ module }}_Init(); }
+ *   void tearDown(void) { {{ mock_prefix }}{{ module }}_Verify(); {{ mock_prefix }}{{ module }}_Destroy(); }
  */
 #ifndef {{ guard }}
 #define {{ guard }}
@@ -12,9 +12,9 @@
 #include "{{ header_name }}"
 #include "forge_mock.h"
 
-void mock_{{ module }}_Init(void);
-void mock_{{ module }}_Verify(void);
-void mock_{{ module }}_Destroy(void);
+void {{ mock_prefix }}{{ module }}_Init(void);
+void {{ mock_prefix }}{{ module }}_Verify(void);
+void {{ mock_prefix }}{{ module }}_Destroy(void);
 
 {% for f in functions %}
 /* {{ f.name }} */
@@ -26,13 +26,18 @@ void {{ f.name }}_Ignore(void);
 void {{ f.name }}_ExpectAndReturn({{ f.expect_and_return_params }});
 void {{ f.name }}_ExpectAnyArgsAndReturn({{ f.return_type }} cmock_to_return);
 void {{ f.name }}_IgnoreAndReturn({{ f.return_type }} cmock_to_return);
+void {{ f.name }}_Ignore(void);
 {% endif %}
 void {{ f.name }}_StopIgnore(void);
+{% for p in f.params %}
+void {{ f.name }}_IgnoreArg_{{ p.name }}(void);
+{% endfor %}
 {% for p in f.return_thru_params %}
 void {{ f.name }}_ReturnThruPtr_{{ p.name }}({{ p.type }} {{ p.name }}_val);
 {% endfor %}
 void {{ f.name }}_AddCallback({{ f.callback_sig }});
 void {{ f.name }}_Stub({{ f.callback_sig }});
+void {{ f.name }}_StubWithCallback({{ f.callback_sig }});
 {% endfor %}
 
 #endif /* {{ guard }} */

@@ -53,6 +53,10 @@ The `vpl test` flow is a linear pipeline; each module is one stage and they conn
 
 [mockgen.py](vyperling/mockgen.py:1) **intentionally supersedes** the regex-parser design in [vyperling-architecture.md](vyperling-architecture.md) sections 6.7/10. The real implementation is pycparser + jinja2 emitting the full CMock API (`_Expect`, `_ExpectAndReturn`, `_ReturnThruPtr_*`, `_Ignore`, `_AddCallback`, `mock_*_Init/_Verify/_Destroy`). The module docstring is authoritative; the architecture doc is stale on this point. v0.1 skips (with a warning) variadic functions, function-pointer params, and incomplete struct-by-value params. `TREAT_AS` maps C types → Unity assertion suffixes (typedefs matched before base types).
 
+## Git conventions
+
+Commit format and branch naming are defined in [.claude/rules/git-conventions.md](.claude/rules/git-conventions.md). Use the `/commit` slash command to format a message or branch name interactively.
+
 ## Project status & workflow
 
 Implementation follows [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md): steps 1–11 (all library modules) are ✅; **steps 12–17 remain** — `scaffold.py` (`vpl new`), full CLI wiring, the Python test suite, e2e smoke tests, and CI. Several `cli.py` commands (`new`, `test`, `build`, `clean`, `targets`) are still **stubs that print `[stub] … not yet implemented`**; only `mock` is wired. Per-step design lives in [plans/](plans/).

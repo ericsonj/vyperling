@@ -1,0 +1,21 @@
+project:
+  name: mock_features
+  src_dirs:
+    - src
+  include_dirs:
+    - src
+  test_dir: test
+  mock_dir: mocks
+  build_dir: build
+
+compiler:
+  defines:
+    - TEST
+
+targets:
+  default: native
+
+conventions:
+  test_prefix: "Test"
+  mock_prefix: "Mock"
+  test_naming: "camelCase"

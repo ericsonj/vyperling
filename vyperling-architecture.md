@@ -78,16 +78,23 @@ vyperling/
 │   ├── discoverer.py       # test_*.c discovery, source file matching
 │   ├── compiler.py         # subprocess gcc invocation, parallel jobs, dep tracking
 │   ├── runner.py           # native exec or qemu-* with timeout, stdout capture
-│   ├── mockgen.py          # C header parser → mock_*.c + mock_*.h generator
+│   ├── mockgen.py          # pycparser AST → jinja2 → mock_*.c + mock_*.h
 │   ├── coverage.py         # gcovr invocation, HTML + Cobertura XML report
 │   ├── reporter.py         # rich terminal table, JUnit XML writer
 │   └── scaffold.py         # `vyperling new` project template generator
+│
+├── vyperling/templates/    # jinja2 templates
+│   ├── mock_header.h.j2     # → mock_<name>.h
+│   ├── mock_source.c.j2     # → mock_<name>.c
+│   └── scaffold_*.j2        # `vyperling new` file templates
 │
 ├── vyperling/c/
 │   ├── unity.h             # vendored Unity (ThrowTheSwitch, MIT license)
 │   ├── unity.c             # vendored Unity source
 │   ├── unity_internals.h   # vendored Unity internals
-│   └── unity_fixture.h     # fixture support (setUp/tearDown)
+│   ├── unity_fixture.h     # fixture support (setUp/tearDown)
+│   ├── forge_mock.h        # mock queue/arena runtime (shared by all mocks)
+│   └── forge_mock.c
 │
 ├── tests/                  # vyperling's own Python test suite
 │   ├── test_config.py
@@ -390,44 +397,66 @@ The runner parses this format to extract individual test case results from a sin
 
 ### 6.7 `mockgen.py`
 
-Parses C headers and generates mock implementations.
+Parses C headers with **pycparser** and generates a full CMock-style mock API with
+**Jinja2** templates.
 
 **Input:** a `.h` file  
 **Output:** `mock_<name>.h` and `mock_<name>.c` written to `mock_dir`
 
-**Generated mock `.h` provides:**
+**Parser approach — pycparser, not regex:**
+
+A real C AST, not text matching. The pipeline:
+
+1. **Preprocess** the header with the resolved toolchain's `cc -E` so macros, includes,
+   and conditionals are expanded before parsing. pycparser cannot handle raw libc headers,
+   so the preprocess step uses `-nostdinc` + `pycparser_fake_libc` (minimal fake stdlib
+   headers) and neutralizes GCC extensions (`-D__attribute__(x)=`, `__extension__`,
+   `__inline`, `__restrict`, `__asm__`). User `include_dirs` and `compiler.defines` from
+   `forge.yml` are appended so the header parses in its real configuration.
+2. **Parse** the preprocessed output into a `c_ast` with `pycparser.CParser`.
+3. **Walk** top-level `FuncDecl` nodes. `_extract_functions()` compares each node's
+   `coord.file` to the target header path and keeps ONLY functions declared in the header
+   itself — transitive `#include`d declarations are dropped (prevents duplicate-symbol
+   link errors).
+4. **Classify** each parameter via the `TREAT_AS` table → a Unity assertion suffix
+   (`INT`, `UINT32`, `PTR`, `STRING`, `MEMORY`, …). Typedef names are matched BEFORE base
+   types so `uint16_t` wins over `unsigned short`. `c_generator` reconstructs type strings
+   for storage fields.
+5. **Render** `mock_header.h.j2` and `mock_source.c.j2` with the `FunctionDecl` /
+   `Param` dataclasses as template context. `StrictUndefined` is set — any missing
+   template variable is a hard error, never a silent blank.
+
+**Intermediate dataclasses** (`mockgen.py:77-99`): `Param` (name, type, assert_suffix,
+is_ptr, is_const_ptr, return_thru, pointee_type, storage_type, is_fnptr) and
+`FunctionDecl` (name, return_type, params, is_void, is_variadic, skipped, skip_reason,
+return_thru_params). These carry parse results from the AST walk into the templates.
+
+**Generated API** (queue-based, per mocked function) — emitted into `mock_<name>.{c,h}`:
 ```c
-// Call counter for each function
-extern int mock_uart_send_call_count;
-
-// Return value injector
-extern int mock_uart_send_return_val;
-#define UART_SEND_RETURNS(v) mock_uart_send_return_val = (v)
-
-// Argument capture (last call)
-extern const char* mock_uart_send_last_data;
-
-// Expectation macro
-#define EXPECT_UART_SEND_CALLED(n) \
-  do { if (mock_uart_send_call_count != (n)) { \
-    forge_fail("Expected uart_send called %d time(s), got %d", (n), mock_uart_send_call_count); \
-  }} while(0)
-
-// Reset all mocks (call in setUp)
-void forge_mocks_reset(void);
+func_Expect(args)            / func_ExpectAndReturn(args, ret)   // void / non-void
+func_ExpectAnyArgs           / func_ExpectAnyArgsAndReturn
+func_Ignore / func_IgnoreAndReturn / func_StopIgnore
+func_ReturnThruPtr_<param>   // non-const pointer params only
+func_AddCallback / func_Stub
+mock_<module>_Init / _Verify / _Destroy
 ```
+Failures route through Unity (`UNITY_TEST_FAIL`). The shared queue runtime lives in the
+vendored `vyperling/c/forge_mock.{c,h}` and is compiled into every test binary — the
+generated `mock_<name>.c` holds only the per-function glue.
 
-**Parser approach:**
-- Strip comments (block and line)
-- Match function declarations with a regex: return type, name, parameter list, trailing semicolon
-- Skip: preprocessor directives, typedefs, structs, enums, `extern const` declarations
-- Handle pointer return types and pointer parameters correctly
-- Does not require a full C parser — regex is sufficient for well-formed headers
+**Skip conditions (UserWarning, header skipped — not fatal):**
+- Incomplete (opaque) struct-by-value params — forward-declared `struct Foo` has unknown
+  `sizeof`. Complete structs (inline or typedef'd) ARE handled via `MEMORY` compare.
+- Variadic (`...`) and function-pointer params are SUPPORTED (variadic tail ignored at mock
+  time; fnptr stored as `void *`, asserted by pointer identity).
 
-**Limitations (v0.1):**
-- No variadic function support (`...`)
-- No function pointer parameters
-- Does not parse `#include`d transitive headers
+**Why pycparser over regex:** typedefs, multi-line declarations, nested pointers, and
+`#ifdef`-guarded prototypes break regex but parse cleanly from a real AST after the C
+preprocessor runs. The toolchain's own `cc` does the preprocessing, so the mock sees
+exactly what the compiler sees.
+
+> The module docstring in `mockgen.py` is authoritative. Section 10 below shows the
+> concrete pycparser → Jinja2 input/output.
 
 ### 6.8 `coverage.py`
 
@@ -594,6 +623,24 @@ exit 0 (all pass) or exit 1 (any failure)
 
 ## 10. Mock generation spec
 
+The generator is a two-stage pipeline: **pycparser** turns the header into typed
+`FunctionDecl` / `Param` dataclasses, then **Jinja2** renders those into the mock C
+sources. The two templates live in `vyperling/templates/`:
+
+```
+vyperling/templates/mock_header.h.j2   → mocks/mock_<name>.h
+vyperling/templates/mock_source.c.j2   → mocks/mock_<name>.c
+```
+
+### Stage 1 — pycparser: header → AST → dataclasses
+
+```
+uart.h ──(cc -E -nostdinc -Ifake_libc …)──▶ preprocessed text
+       ──pycparser.CParser──▶ c_ast
+       ──_extract_functions() (filter by coord.file)──▶ [FuncDecl, …]
+       ──classify params via TREAT_AS + c_generator──▶ [FunctionDecl(Param…), …]
+```
+
 ### Input header example
 
 ```c
@@ -611,7 +658,33 @@ int  uart_read_byte(void);
 #endif
 ```
 
-### Generated `mocks/mock_uart.h`
+### Intermediate AST result (Jinja2 template context)
+
+```python
+[
+  FunctionDecl(name="uart_init", return_type="int", is_void=False,
+    params=[Param(name="baud_rate", type="uint32_t", assert_suffix="UINT32")]),
+  FunctionDecl(name="uart_send", return_type="int", is_void=False,
+    params=[Param(name="data", type="const char *", assert_suffix="STRING",
+                  is_ptr=True, is_const_ptr=True),
+            Param(name="len", type="uint16_t", assert_suffix="UINT16")]),
+  FunctionDecl(name="uart_flush", return_type="void", is_void=True, params=[]),
+  FunctionDecl(name="uart_read_byte", return_type="int", is_void=False, params=[]),
+]
+```
+
+`TREAT_AS` resolves each type to a Unity suffix: `uint32_t → UINT32`,
+`const char * → STRING`, `uint16_t → UINT16`. Typedef names beat base types.
+
+### Stage 2 — Jinja2: dataclasses → mock C
+
+The full CMock-style queue API is emitted (see §6.7). Per non-void function the templates
+generate the `_Expect` / `_ExpectAndReturn` / `_Ignore` / `_ReturnThruPtr_*` family plus the
+real function definition that pops the expectation queue and asserts captured args through
+Unity. The shared queue/arena runtime is NOT regenerated per header — it lives once in the
+vendored `vyperling/c/forge_mock.{c,h}` and links into every binary.
+
+### Generated `mocks/mock_uart.h` (shape)
 
 ```c
 /* Auto-generated by vyperling. DO NOT EDIT. */
@@ -619,95 +692,44 @@ int  uart_read_byte(void);
 #define MOCK_UART_H
 
 #include "uart.h"
-#include <stdint.h>
+#include "forge_mock.h"
 
-/* Call counters */
-extern int mock_uart_init_call_count;
-extern int mock_uart_send_call_count;
-extern int mock_uart_flush_call_count;
-extern int mock_uart_read_byte_call_count;
+void mock_uart_Init(void);
+void mock_uart_Verify(void);
+void mock_uart_Destroy(void);
 
-/* Return value injectors */
-extern int mock_uart_init_return_val;
-#define UART_INIT_RETURNS(v)      mock_uart_init_return_val = (v)
-extern int mock_uart_send_return_val;
-#define UART_SEND_RETURNS(v)      mock_uart_send_return_val = (v)
-extern int mock_uart_read_byte_return_val;
-#define UART_READ_BYTE_RETURNS(v) mock_uart_read_byte_return_val = (v)
-
-/* Expectation helpers */
-#define EXPECT_UART_INIT_CALLED(n) \
-  do { if (mock_uart_init_call_count != (n)) \
-    forge_fail("uart_init: expected %d calls, got %d", (n), mock_uart_init_call_count); } while(0)
-#define EXPECT_UART_SEND_CALLED(n) \
-  do { if (mock_uart_send_call_count != (n)) \
-    forge_fail("uart_send: expected %d calls, got %d", (n), mock_uart_send_call_count); } while(0)
-#define EXPECT_UART_FLUSH_CALLED(n) \
-  do { if (mock_uart_flush_call_count != (n)) \
-    forge_fail("uart_flush: expected %d calls, got %d", (n), mock_uart_flush_call_count); } while(0)
-
-/* Reset all mocks — call this in setUp() */
-void forge_mocks_reset(void);
-void forge_fail(const char *fmt, ...);
+/* uart_send(const char *data, uint16_t len) -> int */
+void uart_send_ExpectAndReturn(const char *data, uint16_t len, int to_return);
+void uart_send_ExpectAnyArgsAndReturn(int to_return);
+void uart_send_IgnoreAndReturn(int to_return);
+void uart_send_StopIgnore(void);
+void uart_send_AddCallback(void *callback);
+/* … same family for uart_init / uart_read_byte; void funcs omit *AndReturn … */
 
 #endif
 ```
 
-### Generated `mocks/mock_uart.c`
+### Generated `mocks/mock_uart.c` (shape)
 
 ```c
 /* Auto-generated by vyperling. DO NOT EDIT. */
 #include "mock_uart.h"
-#include <stdio.h>
-#include <stdarg.h>
-#include <stdlib.h>
+#include "unity.h"
 
-void forge_fail(const char *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(stderr, fmt, args);
-    va_end(args);
-    fprintf(stderr, "\n");
-    exit(1);
-}
-
-int mock_uart_init_call_count     = 0;
-int mock_uart_send_call_count     = 0;
-int mock_uart_flush_call_count    = 0;
-int mock_uart_read_byte_call_count = 0;
-
-int mock_uart_init_return_val     = 0;
-int mock_uart_send_return_val     = 0;
-int mock_uart_read_byte_return_val = 0;
-
-void forge_mocks_reset(void) {
-    mock_uart_init_call_count      = 0;
-    mock_uart_send_call_count      = 0;
-    mock_uart_flush_call_count     = 0;
-    mock_uart_read_byte_call_count = 0;
-}
-
-int uart_init(uint32_t baud_rate) {
-    (void)baud_rate;
-    mock_uart_init_call_count++;
-    return mock_uart_init_return_val;
-}
-
+/* Per-function CALL_INSTANCE captures fixed args; queue lives in forge_mock. */
 int uart_send(const char *data, uint16_t len) {
-    (void)data; (void)len;
-    mock_uart_send_call_count++;
-    return mock_uart_send_return_val;
+    /* pop next expectation, assert args via Unity, return queued value */
+    CALL_INSTANCE *ci = forge_mock_pop("uart_send");
+    UNITY_TEST_ASSERT_EQUAL_STRING(ci->expected_data, data, __LINE__, "uart_send arg data");
+    UNITY_TEST_ASSERT_EQUAL_UINT16(ci->expected_len,  len,  __LINE__, "uart_send arg len");
+    return ci->return_val;
 }
-
-void uart_flush(void) {
-    mock_uart_flush_call_count++;
-}
-
-int uart_read_byte(void) {
-    mock_uart_read_byte_call_count++;
-    return mock_uart_read_byte_return_val;
-}
+/* … _ExpectAndReturn / _Ignore / _Verify push/configure entries on the queue … */
 ```
+
+> Shapes above are illustrative. Exact output is whatever
+> `mock_header.h.j2` / `mock_source.c.j2` render — those templates plus the
+> `mockgen.py` docstring are authoritative.
 
 ---
 
@@ -832,6 +854,10 @@ dependencies = [
     "click>=8.0",
     "rich>=13.0",
     "pyyaml>=6.0",
+    "pycparser>=2.22",          # C header → AST
+    "pycparser-fake-libc",      # fake stdlib headers for preprocessing
+    "jinja2>=3.0",              # mock + scaffold templates
+    "gcovr>=6.0",               # coverage report (pure-Python, no lcov)
 ]
 
 [project.scripts]
@@ -848,13 +874,17 @@ include = [
     "vyperling/**/*.py",
     "vyperling/c/*.h",
     "vyperling/c/*.c",
+    "vyperling/templates/*.j2",
 ]
 ```
 
-**Runtime dependencies are intentionally minimal:**
+**Runtime dependencies:**
 - `click` — CLI framework
 - `rich` — terminal output formatting
 - `pyyaml` — forge.yml parsing
+- `pycparser` + `pycparser-fake-libc` — C header parsing for mockgen
+- `jinja2` — mock and scaffold code generation
+- `gcovr` — coverage report (pure-Python; no lcov/genhtml)
 
 No build system dependency (no CMake, no Make) — those are assumed to be on the host.
 
@@ -928,17 +958,16 @@ jobs:
 
 ## 17. Future roadmap
 
-### v0.2
-- `--watch` mode: rerun tests on file change using `watchdog`
-- Argument capture in mocks (store last N calls, not just count)
-- `vyperling report` command to re-display results from a previous run without recompiling
-
-### v0.3
-- On-target execution via OpenOCD/pyOCD debug probe (for `--target on-device`)
-- YAML test matrix: run the same suite across multiple targets in one command
-- VS Code extension for inline pass/fail annotations
-
-### v1.0
+### v0.0.3
 - Full C preprocessor awareness in mockgen (handle `#ifdef`-guarded declarations)
 - CException support
 - Plugin API for custom reporters and custom emulator adapters
+
+### v0.0.4
+- On-target execution via OpenOCD/pyOCD debug probe (for `--target on-device`)
+- VS Code extension for inline pass/fail annotations
+
+### v0.0.N
+- `--watch` mode: rerun tests on file change using `watchdog`
+- Argument capture in mocks (store last N calls, not just count)
+- `vyperling report` command to re-display results from a previous run without recompiling

@@ -55,6 +55,11 @@ void *forge_mock_queue_push(forge_mock_queue *q, size_t size)
     *(void **)rec = 0;  /* next = NULL */
     if (q->tail) {
         *(void **)q->tail = rec;
+        /* If replay is NULL all previously pushed items were consumed; restart
+         * the replay cursor so the new item can be popped. */
+        if (!q->replay) {
+            q->replay = rec;
+        }
     } else {
         q->head = rec;
         q->replay = rec;

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from vyperling.errors import ForgeToolchainError
 
@@ -65,25 +65,76 @@ BUILTIN_TOOLCHAINS: dict[str, Toolchain] = {
         sysroot=None,
         static=True,
     ),
-    "arm-cortex-m4": Toolchain(
-        name="arm-cortex-m4",
-        description="ARM Cortex-M4 — arm-none-eabi-gcc + qemu-arm",
-        cc="arm-none-eabi-gcc",
-        ar="arm-none-eabi-ar",
-        cflags=["-mcpu=cortex-m4", "-mthumb"],
+    # arm-linux-gnueabihf: Linux userspace ARM — mirrors MIPS pattern.
+    # qemu-arm (user mode) works without semihosting; static=True avoids sysroot.
+    "arm-linux": Toolchain(
+        name="arm-linux",
+        description="ARM Linux gnueabihf — arm-linux-gnueabihf-gcc + qemu-arm (user mode)",
+        cc="arm-linux-gnueabihf-gcc",
+        ar="arm-linux-gnueabihf-ar",
+        cflags=["-march=armv7-a", "-mfpu=vfpv3-d16", "-mfloat-abi=hard"],
         emulator="qemu-arm",
         emulator_args=[],
         sysroot=None,
         static=True,
     ),
-    "arm-cortex-m0": Toolchain(
-        name="arm-cortex-m0",
-        description="ARM Cortex-M0 — arm-none-eabi-gcc + qemu-arm",
+    # ARM Cortex-M4 bare-metal under qemu-arm (user mode). Three parts work together:
+    #
+    #   cflags --specs=rdimon.specs -lrdimon
+    #       Bare-metal libc has no OS to call. rdimon ("rdi monitor") links the
+    #       semihosting C library: printf/exit/etc. compile down to a BKPT 0xAB
+    #       instruction (the ARM semihosting call), instead of a Linux syscall.
+    #
+    #   emulator_args -cpu cortex-m4   (REQUIRED — not optional)
+    #       qemu-arm's default CPU is an A-profile core that does not implement the
+    #       M-profile thumb semihosting trap. Without this flag the BKPT is treated
+    #       as a real breakpoint → "uncaught target signal 5 (SIGTRAP)" core dump.
+    #       -cpu cortex-m4 selects an M-profile core that intercepts the trap and
+    #       services it as a semihosting request — forwarding stdout/exit to host.
+    #
+    #   NO -semihosting flag
+    #       That flag belongs to qemu-SYSTEM (full-machine emulation). qemu-arm
+    #       USER mode enables semihosting automatically and ERRORS on the flag
+    #       ("unknown option 'semihosting'"), quitting before the binary runs —
+    #       which silently parses as 0 tests. Pass -cpu only.
+    #
+    # Result: Unity's printf output reaches stdout, runner parses it, exit code
+    # propagates. static=True keeps the ELF self-contained (no sysroot needed).
+    "arm-cortex-m4": Toolchain(
+        name="arm-cortex-m4",
+        description="ARM Cortex-M4 bare-metal — arm-none-eabi-gcc + qemu-arm-static -cpu cortex-m4 (semihosting)",
         cc="arm-none-eabi-gcc",
         ar="arm-none-eabi-ar",
-        cflags=["-mcpu=cortex-m0", "-mthumb"],
-        emulator="qemu-arm",
-        emulator_args=[],
+        cflags=["-mcpu=cortex-m4", "-mthumb", "--specs=rdimon.specs", "-lrdimon"],
+        emulator="qemu-arm-static",
+        emulator_args=["-cpu", "cortex-m4"],
+        sysroot=None,
+        static=True,
+    ),
+    # arm-cortex-m4-pyocd: real hardware via SWD. --target must match the chip (e.g. stm32f407vg).
+    # Override emulator_args in forge.yml toolchains to set the correct chip ID:
+    #   toolchains:
+    #     arm-cortex-m4-pyocd:
+    #       emulator_args: ["run", "--target", "stm32f407vg"]
+    "arm-cortex-m4-pyocd": Toolchain(
+        name="arm-cortex-m4-pyocd",
+        description="ARM Cortex-M4 on real hardware — arm-none-eabi-gcc + pyocd run",
+        cc="arm-none-eabi-gcc",
+        ar="arm-none-eabi-ar",
+        cflags=["-mcpu=cortex-m4", "-mthumb", "--specs=rdimon.specs", "-lrdimon"],
+        emulator="pyocd",
+        emulator_args=["run", "--target", "cortex_m"],
+        sysroot=None,
+        static=True,
+    ),
+    "arm-cortex-m0": Toolchain(
+        name="arm-cortex-m0",
+        description="ARM Cortex-M0 bare-metal — arm-none-eabi-gcc + qemu-arm-static -cpu cortex-m0 (semihosting)",
+        cc="arm-none-eabi-gcc",
+        ar="arm-none-eabi-ar",
+        cflags=["-mcpu=cortex-m0", "-mthumb", "--specs=rdimon.specs", "-lrdimon"],
+        emulator="qemu-arm-static",
+        emulator_args=["-cpu", "cortex-m0"],
         sysroot=None,
         static=True,
     ),
@@ -138,6 +189,5 @@ def get_toolchain(name: str, config: dict) -> Toolchain:
 
     available = sorted(set(BUILTIN_TOOLCHAINS) | set(user_toolchains))
     raise ForgeToolchainError(
-        f"Unknown toolchain target {name!r}. "
-        f"Available: {', '.join(available)}"
+        f"Unknown toolchain target {name!r}. " f"Available: {', '.join(available)}"
     )
