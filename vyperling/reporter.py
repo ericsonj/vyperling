@@ -1,7 +1,8 @@
-"""vyperling.reporter — rich terminal output + JUnit XML writer."""
+"""vyperling.reporter — rich terminal output + JUnit XML / JSON writers."""
 
 from __future__ import annotations
 
+import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -280,3 +281,44 @@ def write_junit_xml(run_results: list[RunResult], output_path: Path) -> None:
     ET.indent(root)
     tree = ET.ElementTree(root)
     tree.write(str(output_path), encoding="unicode", xml_declaration=True)
+
+
+def write_results_json(
+    run_results: list[RunResult], output_path: Path, *, target: str
+) -> None:
+    """Write a fully-located JSON results file.
+
+    Unlike JUnit XML (which carries file:line only inside <failure> bodies for
+    FAILing tests), this schema keeps ``file``/``line``/``status`` on *every*
+    test so editor integrations can place inline pass/ignore markers too.
+
+    Note: ``test.file`` is whatever path Unity printed (the path handed to the
+    compiler, usually relative to the project root); consumers must resolve it
+    against the workspace root, not the build dir.
+    """
+    units: list[dict] = []
+    for rr in run_results:
+        tests = [
+            {
+                "file": tc.file,
+                "line": tc.line,
+                "name": tc.name,
+                "status": "ignore" if tc.ignored else ("pass" if tc.passed else "fail"),
+                "message": tc.message,
+            }
+            for tc in rr.tests
+        ]
+        units.append(
+            {
+                "name": rr.unit.name,
+                "binary": str(rr.binary) if rr.binary is not None else None,
+                "compile_error": rr.binary is None,
+                "timed_out": rr.timed_out,
+                "duration_ms": rr.duration_ms,
+                "stderr": rr.stderr,
+                "tests": tests,
+            }
+        )
+
+    doc = {"schema": 1, "target": target, "units": units}
+    output_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")

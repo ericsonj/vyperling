@@ -106,7 +106,7 @@ def new(name: str) -> None:
               help="Number of parallel compile jobs.")
 @click.option("--coverage", is_flag=True, default=False,
               help="Enable gcov coverage (native target only).")
-@click.option("--output", type=click.Choice(["junit"]), default=None,
+@click.option("--output", type=click.Choice(["junit", "json"]), default=None,
               help="Also write test results in the given format.")
 @click.option("-v", "--verbose", is_flag=True, default=False,
               help="Print every compiler command.")
@@ -114,9 +114,11 @@ def new(name: str) -> None:
               help="Skip automatic mock generation.")
 @click.option("--compact", is_flag=True, default=False,
               help="One line per test unit instead of per-test detail.")
+@click.option("--debug", is_flag=True, default=False,
+              help="Build with -g -O0 into build/<target>-debug for debugging.")
 @click.pass_context
 def test(ctx, target, filter_pattern, jobs, coverage, output, verbose, no_mock,
-         compact) -> None:
+         compact, debug) -> None:
     """Discover, compile, run, and report C unit tests."""
     from .compiler import compile_all
     from .config import find_config, get_build_dir, get_mock_dir, load_config
@@ -129,6 +131,7 @@ def test(ctx, target, filter_pattern, jobs, coverage, output, verbose, no_mock,
         print_summary,
         print_terminal_report,
         write_junit_xml,
+        write_results_json,
     )
     from .runner import run_all
     from .toolchains import get_toolchain
@@ -156,21 +159,27 @@ def test(ctx, target, filter_pattern, jobs, coverage, output, verbose, no_mock,
                 generate_all(headers, get_mock_dir(config), config, toolchain)
 
         results = compile_all(
-            units, toolchain, config, jobs=jobs, verbose=verbose, coverage=cov_native
+            units, toolchain, config, jobs=jobs, verbose=verbose,
+            coverage=cov_native, debug=debug,
         )
         runs = run_all(results, toolchain)
         print_terminal_report(runs, compact=compact)
         print_summary(runs)
 
         if output == "junit":
-            out_path = get_build_dir(config, toolchain.name) / "results.xml"
+            out_path = get_build_dir(config, toolchain.name, debug=debug) / "results.xml"
             out_path.parent.mkdir(parents=True, exist_ok=True)
             write_junit_xml(runs, out_path)
             click.echo(f"Wrote JUnit XML to {out_path}")
+        elif output == "json":
+            out_path = get_build_dir(config, toolchain.name, debug=debug) / "results.json"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            write_results_json(runs, out_path, target=toolchain.name)
+            click.echo(f"Wrote JSON results to {out_path}")
 
         if cov_native:
             try:
-                build_dir = get_build_dir(config, "native")
+                build_dir = get_build_dir(config, "native", debug=debug)
                 index, summary = generate_coverage(config, build_dir, build_dir)
                 print_coverage_report(summary)
                 click.echo(f"Coverage report: {index}")

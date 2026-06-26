@@ -70,6 +70,7 @@ def compile_unit(
     build_dir: Path,
     verbose: bool = False,
     coverage: bool = False,
+    debug: bool = False,
 ) -> CompileResult:
     conventions = config.get("conventions", {})
     mock_prefix: str = conventions.get("mock_prefix", "mock_")
@@ -140,6 +141,11 @@ def compile_unit(
         flags.append("-static")
     if coverage and toolchain.name == "native":
         flags += ["--coverage", "-fprofile-arcs", "-ftest-coverage"]
+    if debug:
+        # Emit DWARF and disable optimisation so a debugger can map every source
+        # line and inspect locals. Built into a separate dir by the caller so it
+        # never clobbers the optimised/coverage build's cache.
+        flags += ["-g", "-O0"]
     flags += ["-I" + str(d) for d in include_dirs]
 
     ldflags: list[str] = list(config["compiler"].get("extra_ldflags", []))
@@ -183,12 +189,15 @@ def compile_all(
     jobs: int = 1,
     verbose: bool = False,
     coverage: bool = False,
+    debug: bool = False,
 ) -> list[CompileResult]:
-    build_dir = get_build_dir(config, toolchain.name)
+    build_dir = get_build_dir(config, toolchain.name, debug=debug)
     build_dir.mkdir(parents=True, exist_ok=True)
 
     def _compile(unit: TestUnit) -> CompileResult:
-        return compile_unit(unit, toolchain, config, build_dir, verbose, coverage)
+        return compile_unit(
+            unit, toolchain, config, build_dir, verbose, coverage, debug
+        )
 
     with ThreadPoolExecutor(max_workers=jobs) as executor:
         return list(executor.map(_compile, units))

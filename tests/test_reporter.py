@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -20,6 +21,7 @@ from vyperling.reporter import (
     print_summary,
     print_terminal_report,
     write_junit_xml,
+    write_results_json,
 )
 from vyperling.runner import RunResult, TestCase
 
@@ -433,3 +435,73 @@ class TestPrintCoverageReport:
         )
         out = _capture_coverage(summary, monkeypatch)
         assert out.index("src/bad.c") < out.index("src/good.c")
+
+
+# ---------------------------------------------------------------------------
+# write_results_json
+# ---------------------------------------------------------------------------
+
+class TestWriteResultsJson:
+    def _json(self, run_results, tmp_path) -> dict:
+        out = tmp_path / "results.json"
+        write_results_json(run_results, out, target="native")
+        return json.loads(out.read_text())
+
+    def test_top_level_shape(self, tmp_path):
+        rr = _make_rr(tests=[_make_tc("test_ok")])
+        doc = self._json([rr], tmp_path)
+        assert doc["schema"] == 1
+        assert doc["target"] == "native"
+        assert isinstance(doc["units"], list) and len(doc["units"]) == 1
+
+    def test_every_test_has_location_and_status(self, tmp_path):
+        rr = _make_rr(tests=[
+            _make_tc("ok"),
+            _make_tc("fail", passed=False, message="Expected 1 was 0"),
+            _make_tc("skip", passed=False, ignored=True),
+        ])
+        tests = self._json([rr], tmp_path)["units"][0]["tests"]
+        assert [t["status"] for t in tests] == ["pass", "fail", "ignore"]
+        for t in tests:
+            assert "file" in t and isinstance(t["line"], int) and "name" in t
+
+    def test_fail_message_preserved(self, tmp_path):
+        rr = _make_rr(tests=[_make_tc("bad", passed=False, message="boom")])
+        t = self._json([rr], tmp_path)["units"][0]["tests"][0]
+        assert t["status"] == "fail"
+        assert t["message"] == "boom"
+
+    def test_file_and_line_from_testcase(self, tmp_path):
+        tc = TestCase(
+            file="test/test_uart.c", line=42, name="test_init",
+            passed=True, ignored=False, message="",
+        )
+        rr = _make_rr(tests=[tc])
+        t = self._json([rr], tmp_path)["units"][0]["tests"][0]
+        assert t["file"] == "test/test_uart.c"
+        assert t["line"] == 42
+
+    def test_compile_error_unit(self, tmp_path):
+        rr = _make_rr(binary_ok=False, stderr="link error: undefined symbol")
+        unit = self._json([rr], tmp_path)["units"][0]
+        assert unit["compile_error"] is True
+        assert unit["binary"] is None
+        assert "link error" in unit["stderr"]
+        assert unit["tests"] == []
+
+    def test_timeout_unit_flagged(self, tmp_path):
+        rr = _make_rr(timed_out=True)
+        unit = self._json([rr], tmp_path)["units"][0]
+        assert unit["timed_out"] is True
+
+    def test_binary_path_serialised_as_string(self, tmp_path):
+        rr = _make_rr(name="spi", tests=[_make_tc("test_spi")])
+        unit = self._json([rr], tmp_path)["units"][0]
+        assert unit["name"] == "spi"
+        assert isinstance(unit["binary"], str)
+
+    def test_multiple_units(self, tmp_path):
+        units = self._json(
+            [_make_rr(name="uart"), _make_rr(name="spi")], tmp_path
+        )["units"]
+        assert [u["name"] for u in units] == ["uart", "spi"]
