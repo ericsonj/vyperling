@@ -4,6 +4,8 @@ Inline pass/fail annotations and native debugging for
 [vyperling](../../README.md) embedded-C unit tests, built on the native VS Code
 Test Explorer API.
 
+Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=ericsonjoseph.vyperling) or run `code --install-extension ericsonjoseph.vyperling`.
+
 ## What it does
 
 - Discovers test files in your project's `test_dir` and lists each test function
@@ -114,3 +116,21 @@ in `src/*.ts` in the main window to step through the extension itself.
 The JSON contract is produced by `vpl test --output json` — see
 `write_results_json` in [vyperling/reporter.py](../../vyperling/reporter.py).
 Keep [src/types.ts](src/types.ts) in sync with its `schema` version.
+
+### Releasing
+
+Publishing a GitHub Release whose tag starts with `ext-v` runs
+`.github/workflows/vscode-release.yml`: it runs the extension checks, packages
+one `.vsix`, publishes it to the Visual Studio Marketplace and attaches it to the
+release. Tags starting with `v` stay reserved for the Python package (PyPI).
+
+1. Bump `version` in `package.json` and add a `CHANGELOG.md` entry, commit and push.
+2. `gh release create ext-v0.2.0 --title "VS Code extension v0.2.0" --generate-notes --latest=false`
+
+The tag must be `ext-v` + the `package.json` version. The Marketplace has no
+semver pre-release versions, so channels use the minor number: **even** minor
+(`0.2.x`) for releases, **odd** minor (`0.3.x`) for GitHub pre-releases (add
+`--prerelease`), which are published with `--pre-release`. `--latest=false`
+keeps the PyPI release marked as the repository's latest. The workflow needs the
+secret `VSCE_PAT` (Azure DevOps token, scope *Marketplace → Manage*) in the
+`marketplace` environment.

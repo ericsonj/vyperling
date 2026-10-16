@@ -3,12 +3,29 @@
   "displayName": "Vyperling",
   "description": "Inline pass/fail annotations and native debugging for vyperling embedded-C unit tests.",
   "version": "0.1.0",
-  "publisher": "vyperling",
+  "publisher": "ericsonjoseph",
   "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0f172a",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ericsonj/vyperling"
+    "url": "https://github.com/ericsonj/vyperling",
+    "directory": "editors/vscode"
   },
+  "bugs": {
+    "url": "https://github.com/ericsonj/vyperling/issues"
+  },
+  "homepage": "https://github.com/ericsonj/vyperling/tree/main/editors/vscode#readme",
+  "keywords": [
+    "embedded",
+    "c",
+    "unit test",
+    "unity",
+    "ceedling"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -67,12 +84,15 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:cov": "vitest run --coverage"
+    "test:cov": "vitest run --coverage",
+    "package": "vsce package --no-yarn --no-dependencies --baseContentUrl https://github.com/ericsonj/vyperling/blob/main/editors/vscode --baseImagesUrl https://github.com/ericsonj/vyperling/raw/main/editors/vscode",
+    "package:pre": "yarn package --pre-release"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",
     "@types/vscode": "^1.85.0",
     "@vitest/coverage-v8": "^2.1.0",
+    "@vscode/vsce": "^3.2.1",
     "esbuild": "^0.28.1",
     "typescript": "^5.9.3",
     "vitest": "^2.1.0"

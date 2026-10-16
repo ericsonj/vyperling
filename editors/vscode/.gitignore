@@ -9,3 +9,7 @@ coverage/
 !.yarn/releases
 .pnp.*
 .yarn/install-state.gz
+
+# Local secrets
+*-pat.txt
+.env*
