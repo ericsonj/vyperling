@@ -56,7 +56,7 @@ jobs:
             echo "::error::Release $VERSION needs an even minor version"
             exit 1
           fi
-          echo "vsix=vyperling-$VERSION.vsix" >> "$GITHUB_OUTPUT"
+          echo "vsix=vyperling-test-explorer-$VERSION.vsix" >> "$GITHUB_OUTPUT"
           if [ "$PRERELEASE" = "true" ]; then
             echo "flag=--pre-release" >> "$GITHUB_OUTPUT"
           fi
