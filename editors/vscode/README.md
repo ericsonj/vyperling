@@ -4,7 +4,7 @@ Inline pass/fail annotations and native debugging for
 [vyperling](../../README.md) embedded-C unit tests, built on the native VS Code
 Test Explorer API.
 
-Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=ericsonjoseph.vyperling) or run `code --install-extension ericsonjoseph.vyperling`.
+Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=ericsonjoseph.vyperling-test-explorer) or run `code --install-extension ericsonjoseph.vyperling-test-explorer`.
 
 ## What it does
 

@@ -1,6 +1,6 @@
 {
-  "name": "vyperling",
-  "displayName": "Vyperling",
+  "name": "vyperling-test-explorer",
+  "displayName": "Vyperling Test Explorer",
   "description": "Inline pass/fail annotations and native debugging for vyperling embedded-C unit tests.",
   "version": "0.1.0",
   "publisher": "ericsonjoseph",

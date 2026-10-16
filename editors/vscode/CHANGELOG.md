@@ -4,7 +4,7 @@ All notable changes to this extension are documented here. The format follows [K
 
 ## [0.1.0] - Pre-release
 
-First release under the `ericsonjoseph` publisher.
+First release, published as `ericsonjoseph.vyperling-test-explorer`.
 
 ### Added
 
