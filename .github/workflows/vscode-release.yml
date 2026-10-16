@@ -1,0 +1,76 @@
+name: VS Code extension release
+
+# Extension releases use "ext-v<version>" tags; "v<version>" tags belong to the
+# Python package (ci.yml publishes those to PyPI).
+on:
+  release:
+    types: [published]
+
+concurrency: vscode-release
+
+jobs:
+  test:
+    if: startsWith(github.event.release.tag_name, 'ext-v')
+    uses: ./.github/workflows/vscode-extension.yml
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: marketplace
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: editors/vscode
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      PRERELEASE: ${{ github.event.release.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - run: corepack enable
+
+      - run: yarn install --immutable
+
+      # The tag must be "ext-v" + package.json version. The Marketplace has no
+      # semver pre-release versions, so channels use the minor number:
+      # even minor = release, odd minor = pre-release.
+      - name: Check version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "ext-v$VERSION" ]; then
+            echo "::error::Tag $TAG does not match package.json version $VERSION"
+            exit 1
+          fi
+          MINOR=$(echo "$VERSION" | cut -d. -f2)
+          if [ "$PRERELEASE" = "true" ] && [ $((MINOR % 2)) -eq 0 ]; then
+            echo "::error::Pre-release $VERSION needs an odd minor version"
+            exit 1
+          fi
+          if [ "$PRERELEASE" != "true" ] && [ $((MINOR % 2)) -eq 1 ]; then
+            echo "::error::Release $VERSION needs an even minor version"
+            exit 1
+          fi
+          echo "vsix=vyperling-$VERSION.vsix" >> "$GITHUB_OUTPUT"
+          if [ "$PRERELEASE" = "true" ]; then
+            echo "flag=--pre-release" >> "$GITHUB_OUTPUT"
+          fi
+
+      # One package, published to the Marketplace and attached to the release.
+      - name: Package
+        run: yarn package ${{ steps.version.outputs.flag }} --out "${{ steps.version.outputs.vsix }}"
+
+      - name: Publish to Visual Studio Marketplace
+        run: yarn vsce publish --packagePath "${{ steps.version.outputs.vsix }}" ${{ steps.version.outputs.flag }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Attach to GitHub release
+        run: gh release upload "$TAG" "${{ steps.version.outputs.vsix }}" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

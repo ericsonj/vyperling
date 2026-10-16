@@ -1,6 +1,6 @@
 # vyperling
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PyPI version](https://img.shields.io/badge/PyPI-0.0.1-brightgreen.svg)](https://pypi.org/)
 [![Build Status](https://img.shields.io/badge/status-active-brightgreen.svg)](https://github.com/ericsonjoseph/vyperling)
@@ -77,7 +77,20 @@ vpl test --coverage
 
 # Export JUnit XML for CI
 vpl test --output junit
+
+# Export machine-readable JSON (used by the VS Code extension)
+vpl test --output json
+
+# Build with -g -O0 into build/<target>-debug for use under gdb
+vpl test --debug
 ```
+
+## Editor integration
+
+A VS Code extension lives in [editors/vscode/](editors/vscode/). It runs
+`vpl test --output json` and surfaces per-test pass/fail/ignore inline via the
+native Test Explorer, plus one-click native debugging under gdb. See its
+[README](editors/vscode/README.md) for setup.
 
 ## Commands Reference
 

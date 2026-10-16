@@ -90,8 +90,9 @@ def load_config(config_path: Path) -> dict:
     return _deep_merge(DEFAULT_CONFIG, parsed)
 
 
-def get_build_dir(config: dict, target: str) -> Path:
-    return Path(config["project"]["build_dir"]) / target
+def get_build_dir(config: dict, target: str, debug: bool = False) -> Path:
+    name = f"{target}-debug" if debug else target
+    return Path(config["project"]["build_dir"]) / name
 
 
 def get_test_dir(config: dict) -> Path:

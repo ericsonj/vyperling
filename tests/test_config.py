@@ -204,6 +204,10 @@ class TestGetBuildDir:
         cfg = load_config(write_forge_yml(tmp_path, yaml_content))
         assert get_build_dir(cfg, "native") == Path("dist/native")
 
+    def test_debug_suffix(self, tmp_path):
+        cfg = load_config(write_forge_yml(tmp_path))
+        assert get_build_dir(cfg, "native", debug=True) == Path("build/native-debug")
+
 
 class TestGetTestDir:
     def test_default(self, tmp_path):

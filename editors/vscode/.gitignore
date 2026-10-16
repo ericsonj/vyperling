@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.vsix
+
+# Yarn Berry (node-modules linker): ignore caches, keep config + lockfile.
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+.pnp.*
+.yarn/install-state.gz
+
+# Local secrets
+*-pat.txt
+.env*

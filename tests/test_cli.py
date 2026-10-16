@@ -184,6 +184,27 @@ def test_test_output_junit_writes_xml(runner: CliRunner) -> None:
 
 
 @gcc_only
+def test_test_output_json_writes_json(runner: CliRunner) -> None:
+    with runner.isolated_filesystem():
+        import json
+        import os
+
+        runner.invoke(cli, ["new", "demo"])
+        os.chdir("demo")
+        result = runner.invoke(cli, ["test", "--output", "json"])
+        assert result.exit_code == 0, result.output
+        out = Path("build/native/results.json")
+        assert out.is_file()
+        doc = json.loads(out.read_text())
+        assert doc["schema"] == 1
+        assert doc["target"] == "native"
+        assert doc["units"]
+        for unit in doc["units"]:
+            for tc in unit["tests"]:
+                assert {"file", "line", "name", "status"} <= tc.keys()
+
+
+@gcc_only
 def test_test_with_mocked_dependency_passes(runner: CliRunner) -> None:
     """End-to-end mock pipeline: a SUT calls a dependency the test mocks.
 

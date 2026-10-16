@@ -1,0 +1,135 @@
+{
+  "name": "vyperling",
+  "displayName": "Vyperling",
+  "description": "Inline pass/fail annotations and native debugging for vyperling embedded-C unit tests.",
+  "version": "0.1.0",
+  "publisher": "ericsonjoseph",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0f172a",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ericsonj/vyperling",
+    "directory": "editors/vscode"
+  },
+  "bugs": {
+    "url": "https://github.com/ericsonj/vyperling/issues"
+  },
+  "homepage": "https://github.com/ericsonj/vyperling/tree/main/editors/vscode#readme",
+  "keywords": [
+    "embedded",
+    "c",
+    "unit test",
+    "unity",
+    "ceedling"
+  ],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "packageManager": "yarn@4.17.0",
+  "categories": [
+    "Testing"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/forge.yml"
+  ],
+  "main": "./dist/extension.js",
+  "extensionDependencies": [
+    "ms-vscode.cpptools"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vyperling",
+          "title": "Vyperling",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "vyperling": [
+        {
+          "id": "vyperling.home",
+          "name": "Tests"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "vyperling.home",
+        "contents": "Run and debug your vyperling unit tests from the Test Explorer.\n[Run All Tests](command:testing.runAll)\n[Open Test Explorer](command:workbench.view.testing.focus)\n[Show Output](command:vyperling.showOutput)\n[Settings](command:workbench.action.openSettings?%5B%22vyperling%22%5D)",
+        "when": "vyperling.hasForge"
+      },
+      {
+        "view": "vyperling.home",
+        "contents": "No forge.yml found in this workspace.\nVyperling works in projects with a forge.yml. Create one with `vpl new <name>`, then reopen the folder.\n[Settings](command:workbench.action.openSettings?%5B%22vyperling%22%5D)",
+        "when": "!vyperling.hasForge"
+      }
+    ],
+    "commands": [
+      {
+        "command": "vyperling.showOutput",
+        "title": "Vyperling: Show Output"
+      }
+    ],
+    "configuration": {
+      "title": "Vyperling",
+      "properties": {
+        "vyperling.cliPath": {
+          "type": "string",
+          "default": "vpl",
+          "description": "Path to the vyperling CLI (vpl or vyperling). Must be on PATH or an absolute path."
+        },
+        "vyperling.defaultTarget": {
+          "type": "string",
+          "default": "",
+          "description": "Toolchain target passed to `vpl test --target`. Empty uses targets.default from forge.yml."
+        },
+        "vyperling.jobs": {
+          "type": "number",
+          "default": 4,
+          "description": "Parallel compile jobs passed to `vpl test -j`."
+        },
+        "vyperling.shellPath": {
+          "type": "string",
+          "default": "",
+          "description": "Shell used to run vpl so your profile PATH (nvm/poetry/venv) loads. Empty uses $SHELL."
+        },
+        "vyperling.shellArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "-lic"
+          ],
+          "description": "Args for the shell. Default '-lic' (login+interactive) sources your rc but may emit prompt-plugin noise; switch to ['-lc'] if PATH is set in a login profile and you want a quieter run."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
+    "vscode:prepublish": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
+    "package": "vsce package --no-yarn --no-dependencies --baseContentUrl https://github.com/ericsonj/vyperling/blob/main/editors/vscode --baseImagesUrl https://github.com/ericsonj/vyperling/raw/main/editors/vscode",
+    "package:pre": "yarn package --pre-release"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "@types/vscode": "^1.85.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.0"
+  }
+}

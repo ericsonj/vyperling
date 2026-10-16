@@ -84,7 +84,8 @@ class TestCompileUnit:
         self.build_dir = tmp_path / "build" / "native"
         self.build_dir.mkdir(parents=True)
 
-    def _run(self, unit=None, toolchain=None, coverage=False, verbose=False, proc=None):
+    def _run(self, unit=None, toolchain=None, coverage=False, verbose=False,
+             proc=None, debug=False):
         if unit is None:
             unit = _make_unit(self.tmp)
         if toolchain is None:
@@ -92,7 +93,10 @@ class TestCompileUnit:
         if proc is None:
             proc = _mock_proc()
         with patch("subprocess.run", return_value=proc) as mock_run:
-            result = compile_unit(unit, toolchain, self.config, self.build_dir, verbose, coverage)
+            result = compile_unit(
+                unit, toolchain, self.config, self.build_dir, verbose, coverage,
+                debug,
+            )
         return result, mock_run
 
     def test_cc_is_first_arg(self):
@@ -163,6 +167,18 @@ class TestCompileUnit:
         _, mock_run = self._run(coverage=False)
         cmd = mock_run.call_args[0][0]
         assert "--coverage" not in cmd
+
+    def test_debug_flags_added_when_debug(self):
+        _, mock_run = self._run(debug=True)
+        cmd = mock_run.call_args[0][0]
+        assert "-g" in cmd
+        assert "-O0" in cmd
+
+    def test_no_debug_flags_by_default(self):
+        _, mock_run = self._run(debug=False)
+        cmd = mock_run.call_args[0][0]
+        assert "-g" not in cmd
+        assert "-O0" not in cmd
 
     def test_failure_returncode_gives_success_false(self):
         result, _ = self._run(proc=_mock_proc(returncode=1))

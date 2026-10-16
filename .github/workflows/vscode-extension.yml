@@ -1,0 +1,49 @@
+name: VS Code extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "editors/vscode/**"
+      - ".github/workflows/vscode-*.yml"
+  pull_request:
+    paths:
+      - "editors/vscode/**"
+      - ".github/workflows/vscode-*.yml"
+  workflow_call:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: editors/vscode
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # Yarn version comes from "packageManager" in editors/vscode/package.json.
+      - run: corepack enable
+
+      - run: yarn install --immutable
+
+      - run: yarn typecheck
+
+      - name: Unit tests
+        run: yarn test
+
+      - name: Package
+        run: yarn package
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vsix
+          path: editors/vscode/*.vsix
+          if-no-files-found: error
