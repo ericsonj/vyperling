@@ -25,7 +25,7 @@ function cfg<T>(key: string, fallback: T): T {
   return vscode.workspace.getConfiguration("vyperling").get<T>(key, fallback);
 }
 
-function resolveTarget(forge: ForgeConfig): string {
+export function resolveTarget(forge: ForgeConfig): string {
   const configured = cfg<string>("defaultTarget", "").trim();
   return configured || forge.defaultTarget;
 }

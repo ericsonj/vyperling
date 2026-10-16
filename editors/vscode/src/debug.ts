@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 import { ForgeConfig } from "./forgeConfig";
-import { ensureBinary } from "./runner";
+import { ensureBinary, resolveTarget } from "./runner";
 
 // Launch a native test binary under gdb via the cpptools cppdbg adapter.
 // Native target only this phase; QEMU `-g <port>` + gdb attach is a follow-up.
@@ -10,13 +10,15 @@ export async function debugUnit(
   unitName: string,
   token: vscode.CancellationToken,
 ): Promise<void> {
-  const target = vscode.workspace
-    .getConfiguration("vyperling")
-    .get<string>("defaultTarget", "")
-    .trim();
+  // Resolve the SAME way the runner does (VS Code setting → forge.yml
+  // targets.default), otherwise an empty setting would fall through this guard
+  // while the build below produces a cross binary (e.g. mips32) that host gdb
+  // cannot debug — it launches and dies with "Cannot access memory".
+  const target = resolveTarget(forge);
   if (target && target !== "native") {
     vscode.window.showWarningMessage(
-      `Vyperling debug supports the 'native' target only; '${target}' is configured. ` +
+      `Vyperling debug supports the 'native' target only; '${target}' is configured ` +
+        `(via vyperling.defaultTarget or forge.yml targets.default). ` +
         `Cross-target (QEMU gdbserver) debugging is not yet implemented.`,
     );
     return;
