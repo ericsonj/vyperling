@@ -41,6 +41,41 @@
     "ms-vscode.cpptools"
   ],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vyperling",
+          "title": "Vyperling",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "vyperling": [
+        {
+          "id": "vyperling.home",
+          "name": "Tests"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "vyperling.home",
+        "contents": "Run and debug your vyperling unit tests from the Test Explorer.\n[Run All Tests](command:testing.runAll)\n[Open Test Explorer](command:workbench.view.testing.focus)\n[Show Output](command:vyperling.showOutput)\n[Settings](command:workbench.action.openSettings?%5B%22vyperling%22%5D)",
+        "when": "vyperling.hasForge"
+      },
+      {
+        "view": "vyperling.home",
+        "contents": "No forge.yml found in this workspace.\nVyperling works in projects with a forge.yml. Create one with `vpl new <name>`, then reopen the folder.\n[Settings](command:workbench.action.openSettings?%5B%22vyperling%22%5D)",
+        "when": "!vyperling.hasForge"
+      }
+    ],
+    "commands": [
+      {
+        "command": "vyperling.showOutput",
+        "title": "Vyperling: Show Output"
+      }
+    ],
     "configuration": {
       "title": "Vyperling",
       "properties": {
